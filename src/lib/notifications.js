@@ -143,10 +143,17 @@ export async function showNotification(title, body, id = null) {
 // system's notification scheduler). Without this, iPhone reminders were
 // silently never scheduled.
 const _USE_NATIVE_WORKER = Capacitor.getPlatform() === 'android';
+// Fork: on iPhone, reminders are planned by ios-reminders.js, which skips
+// what's already done today (same rules as Android's worker).
+const _IS_IOS = Capacitor.getPlatform() === 'ios';
+function _iosReplan() {
+  setTimeout(() => import('./ios-reminders.js').then(m => m.refreshIosReminders()).catch(() => {}), 300);
+}
 
 /** Schedule repeating water reminders every `intervalMin` minutes, 8am–10pm daily */
 export async function scheduleWaterReminders(intervalMin = 120) {
   if (!isNative) return;
+  if (_IS_IOS) { _iosReplan(); return; }
   if (_USE_NATIVE_WORKER) { await cancelWaterReminders(); return; }
   const LN = _getLN();
   if (!LN) return;
@@ -179,6 +186,7 @@ export async function scheduleWaterReminders(intervalMin = 120) {
 
 export async function cancelWaterReminders() {
   if (!isNative) return;
+  if (_IS_IOS) { _iosReplan(); return; }
   const LN = _getLN();
   if (!LN) return;
   const pending = await LN.getPending();
@@ -191,6 +199,7 @@ export async function cancelWaterReminders() {
 /** Schedule repeating daily meal reminders at specified times */
 export async function scheduleMealReminders(times = ['08:00', '12:00', '18:00'], mealNames = ['Breakfast', 'Lunch', 'Dinner']) {
   if (!isNative) return;
+  if (_IS_IOS) { _iosReplan(); return; }
   if (_USE_NATIVE_WORKER) { await cancelMealReminders(); return; }
   const LN = _getLN();
   if (!LN) return;
@@ -218,6 +227,7 @@ export async function scheduleMealReminders(times = ['08:00', '12:00', '18:00'],
 
 export async function cancelMealReminders() {
   if (!isNative) return;
+  if (_IS_IOS) { _iosReplan(); return; }
   const LN = _getLN();
   if (!LN) return;
   const pending = await LN.getPending();
@@ -527,6 +537,7 @@ export async function testGotify(url, token) {
 
 export async function scheduleWeighInReminder(timeStr = '07:00') {
   if (!isNative) return;
+  if (_IS_IOS) { _iosReplan(); return; }
   if (_USE_NATIVE_WORKER) { await cancelWeighInReminder(); return; }
   const LN = _getLN();
   if (!LN) return;
@@ -549,6 +560,7 @@ export async function scheduleWeighInReminder(timeStr = '07:00') {
 
 export async function cancelWeighInReminder() {
   if (!isNative) return;
+  if (_IS_IOS) { _iosReplan(); return; }
   const LN = _getLN();
   if (!LN) return;
   const pending = await LN.getPending();

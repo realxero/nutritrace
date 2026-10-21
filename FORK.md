@@ -21,6 +21,7 @@ one is listed with the reason.
 | 6 | **iOS app.** Capacitor iOS project, built on GitHub as an unsigned IPA for LiveContainer/SideStore. Built-in Apple Health sync (no Shortcut); server route for app pushes; CORS for the iOS app. |
 | 7 | **iOS fixes.** Apple Health data shown in the app's offline copy; Connected / Sync now / Disconnect; Safari label squashing; wrapping error toasts; full-bleed icon; text-fits tests. |
 | 8 | **Parity + housekeeping.** Today's Wellness numbers in the app; adaptive TDEE uses Apple Health on the phone; iPhone notifications (reminders were Android-only); fork version + build stamp; personal info removed from code; CI fixes (server deps for unit tests, WebKit-safe tests). |
+| 9 | **Smart iPhone reminders.** Same rules as Android: meal reminders skip meals already logged, water stops at your goal, weigh-in skips if you've weighed in, nothing more once the day is marked complete. iOS can't run a background check, so the next 3 days are re-planned whenever the app opens, comes back to the front, or the diary changes. |
 
 ## Web vs iOS app
 
@@ -28,7 +29,7 @@ one is listed with the reason.
 |---|---|---|---|
 | Apple Health | via iOS Shortcut / Health Auto Export pushing to the server | read directly on the phone | Browsers can't read HealthKit |
 | Reminders | browser notifications (while the page is open) or a push service (ntfy/Gotify) | scheduled on the phone | Browsers can't schedule notifications when closed |
-| Smart reminders (skip if already logged) | — | — | Android-only upstream (WorkManager); iOS gets fixed-time reminders |
+| Smart reminders (skip if already logged) | — | yes | iOS re-plans on open/return/diary change instead of a background check (iOS doesn't allow one); if you log only on the web and never open the app, a reminder can still fire |
 | Voice | Safari speech (can be patchy in home-screen apps) | Apple speech recognition | — |
 | Everything else | same | same | — |
 

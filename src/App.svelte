@@ -349,6 +349,8 @@
 
   onMount(async () => {
     initFold();
+    // Fork: iOS app — reminders that skip what's already done today.
+    import('./lib/ios-reminders.js').then(m => m.startIosReminders()).catch(() => {});
     // Fork: iOS app — sync Apple Health on open and when returning to the app.
     import('./lib/apple-health-native.js').then(async ({ isIOSApp, startAppleHealthAutoSync }) => {
       if (!isIOSApp) return;
