@@ -21,8 +21,11 @@ function textOf(content) {
   return '';
 }
 
+const QUESTION_RE = /\?\s*$|^(how|what|why|when|which|can|should|is|are|do|does|tell me)\b/i;
+
 function parseFoods(text) {
   const lower = text.toLowerCase();
+  if (QUESTION_RE.test(text.trim())) return { intent: 'chat', meal: null, items: [] };
   const meal = MEALS.find(m => lower.includes(m)) || null;
   const slot = meal ? (meal === 'snack' ? 'Snacks' : meal[0].toUpperCase() + meal.slice(1)) : null;
   const cleaned = lower
@@ -43,9 +46,25 @@ function parseFoods(text) {
                   carbohydrates: 20 * quantity, fat: (kcal - 120) / 9 * quantity, fiber: 2, sugars: 3, sodium: 300 },
     };
   });
-  return { meal: slot, items };
+  return { intent: 'log', meal: slot, items };
 }
 
+// Test scenarios: POST /__mock/photo {"scenario":"pizza"|"salad"|"default"} picks the next photo answer.
+let photoScenario = 'default';
+const PIZZA = {
+  name: 'Pepperoni pizza', brand: null,
+  serving: { amount: 800, unit: 'g', label: '1 large pizza' },
+  nutrition: { calories: 2400, proteins: 100, carbohydrates: 260, fat: 100 },
+  divisible: { count: 8, unit: 'slice' }, source: 'estimate', confidence: 'medium',
+};
+function salad(asked, answered) {
+  const base = { name: 'Garden salad', serving: { amount: 250, unit: 'g', label: '1 bowl' },
+    source: 'estimate', confidence: 'medium' };
+  if (answered && /vinaigrette/i.test(answered)) return { ...base, nutrition: { calories: 180, proteins: 4, carbohydrates: 12, fat: 13 } };
+  if (answered) return { ...base, nutrition: { calories: 320, proteins: 5, carbohydrates: 14, fat: 27 } };
+  return { ...base, nutrition: { calories: 320, proteins: 5, carbohydrates: 14, fat: 27 },
+    question: asked ? { text: 'Which dressing is on it?', choices: ['Ranch', 'Vinaigrette', 'None'] } : null };
+}
 const PHOTO = {
   name: 'Fairlife Core Power Vanilla', brand: 'Fairlife',
   serving: { amount: 414, unit: 'ml', label: '1 bottle (14 fl oz)' },
@@ -58,7 +77,14 @@ function answer(body) {
   const user = textOf([...(body.messages || [])].reverse().find(m => m.role === 'user')?.content);
   if (/BADJSON/.test(user)) return 'Sure! Here are your foods: eggs and toast.';
   if (/food and water parser/i.test(sys)) return JSON.stringify(parseFoods(user));
-  if (/estimate nutrition from a single food photo/i.test(sys)) return JSON.stringify(PHOTO);
+  if (/estimate nutrition from a single food photo/i.test(sys)) {
+    const asked = /Questions ARE allowed/.test(sys);
+    const answered = (user.match(/The user answered: (.*)$/m) || [])[1] || '';
+    if (photoScenario === 'pizza') return JSON.stringify(PIZZA);
+    if (photoScenario === 'salad') return JSON.stringify(salad(asked, answered));
+    return JSON.stringify(PHOTO);
+  }
+  if (/protein do i have left/i.test(user)) return 'You have 82 grams of protein left today.';
   return 'Mock Trace reply.';
 }
 
@@ -66,6 +92,10 @@ http.createServer((req, res) => {
   let raw = '';
   req.on('data', c => { raw += c; });
   req.on('end', async () => {
+    if (req.url.startsWith('/__mock/photo')) {
+      try { photoScenario = JSON.parse(raw || '{}').scenario || 'default'; } catch { photoScenario = 'default'; }
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ photoScenario })); return;
+    }
     if (!req.url.endsWith('/chat/completions')) { res.writeHead(404).end('{}'); return; }
     let body = {};
     try { body = JSON.parse(raw || '{}'); } catch {}

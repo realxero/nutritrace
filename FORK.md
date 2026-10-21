@@ -22,6 +22,7 @@ one is listed with the reason.
 | 7 | **iOS fixes.** Apple Health data shown in the app's offline copy; Connected / Sync now / Disconnect; Safari label squashing; wrapping error toasts; full-bleed icon; text-fits tests. |
 | 8 | **Parity + housekeeping.** Today's Wellness numbers in the app; adaptive TDEE uses Apple Health on the phone; iPhone notifications (reminders were Android-only); fork version + build stamp; personal info removed from code; CI fixes (server deps for unit tests, WebKit-safe tests). |
 | 9 | **Smart iPhone reminders.** Same rules as Android: meal reminders skip meals already logged, water stops at your goal, weigh-in skips if you've weighed in, nothing more once the day is marked complete. iOS can't run a background check, so the next 3 days are re-planned whenever the app opens, comes back to the front, or the diary changes. |
+| 10 | **AI upgrades.** Voice questions: hold the button and ask ("how much protein do I have left?"); questions go to the Trace chat and the answer is read aloud (Settings → AI Assistant → Read Answers Aloud), food descriptions still go to Smart Log. *Ask Me When Unsure*: photo logging asks one quick question when an unseen detail changes the calories a lot (answer or skip). Shareable items (pizza, cake, nuggets): pick slices, half or all, and the numbers scale. *Check Products Online* toggle in settings. Fixes "Ongoing speech recognition" on a quick second hold. |
 
 ## Web vs iOS app
 

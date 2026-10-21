@@ -7,6 +7,7 @@
   import {
     aiEnabled, aiProvider, aiApiKey, aiModel, aiBaseUrl, aiAssistantName,
     aiKeyVerified, quickLogEnabled, aiGoalInsights, smartLogVoiceLang,
+    voiceSpeakReplies, aiAskWhenUnsure, photoLogWebSearch,
     activityAutoEstimate, diaryShowActivity,
   } from '../../stores/settings.js';
 
@@ -366,6 +367,22 @@
       <div class="setting-divider"></div>
       <div class="setting-row">
         <div>
+          <span class="setting-label">Ask Me When Unsure</span>
+          <div class="setting-desc">Photo logging: when something it can't see changes the calories a lot (the dressing, cooking oil, how many slices), the AI asks one quick question. You can answer or skip and keep its best guess.</div>
+        </div>
+        <Toggle checked={$aiAskWhenUnsure} on:change={e => aiAskWhenUnsure.set(e.detail)} />
+      </div>
+      <div class="setting-divider"></div>
+      <div class="setting-row">
+        <div>
+          <span class="setting-label">Check Products Online</span>
+          <div class="setting-desc">Photo logging with Gemini: look up a packaged or restaurant item's official nutrition before estimating.</div>
+        </div>
+        <Toggle checked={$photoLogWebSearch} on:change={e => photoLogWebSearch.set(e.detail)} />
+      </div>
+      <div class="setting-divider"></div>
+      <div class="setting-row">
+        <div>
           <span class="setting-label">{$_('settings_trace.labels.smart_log')}</span>
           <div class="setting-desc">{$_('settings_trace.labels.smart_log_desc')}</div>
         </div>
@@ -384,6 +401,15 @@
               <option value={opt.value}>{opt.label}</option>
             {/each}
           </select>
+        </div>
+        <!-- Fork: voice questions + photo-logging AI options -->
+        <div class="setting-divider"></div>
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Read Answers Aloud</span>
+            <div class="setting-desc">Hold the button and ask a question ("how much protein do I have left?"). Trace answers in the chat and reads it out loud. Describing food still logs it.</div>
+          </div>
+          <Toggle checked={$voiceSpeakReplies} on:change={e => voiceSpeakReplies.set(e.detail)} />
         </div>
         <div class="setting-divider"></div>
         <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:6px">

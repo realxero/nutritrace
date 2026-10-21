@@ -19,7 +19,7 @@
   import NutritionFactsBox from '../ui/NutritionFactsBox.svelte';
   import { readBodyStat, LENGTH_KEYS } from '../../lib/body-stats-unit.js';
   import { callAI, callAIProxy, TOOLS, setToolHandler } from '../../lib/aiChat.js';
-  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang } from '../../stores/settings.js';
+  import { aiEnabled, aiEffectivelyEnabled, envLocks, aiKeyVerified, aiAssistantName, aiApiKey, aiProvider, aiModel, aiBaseUrl, goals, mealNames, energyUnit, dateFormat, timeFormat, tempUnit, quickLogEnabled, aiGoalInsights, healthConnectEnabled, smartLogVoiceLang, voiceSpeakReplies } from '../../stores/settings.js';
 
   // Resolve the configured voice-input language. Shared with SmartLogModal:
   // 'auto' (default) means use device locale; explicit BCP-47 tags override.
@@ -1093,6 +1093,7 @@
     recordingMode = true;
     cancelPreview = false;
     recordingStartedAt = Date.now();
+    stopSpeaking();
     _commitNextTranscript = true;
     liveTranscript = '';
     voiceStage = '';
@@ -1115,6 +1116,9 @@
         // speaking OR we call stop(). We don't await it here — we kick it off
         // and let the pointerup handler stop it and process the result.
         try { await _nativePartialHandle?.remove?.(); } catch {}
+        // Fork: a quick second hold used to fail with "Ongoing speech
+        // recognition" — stop the previous session before starting.
+        try { await SpeechRecognition.stop(); } catch {}
         _nativePartialHandle = await SpeechRecognition.addListener('partialResults', (data) => {
           const m = data?.matches?.[0];
           if (m) liveTranscript = m;
@@ -1203,6 +1207,40 @@
     }
   }
 
+  // ── Fork: voice questions → Trace chat, answer read aloud ──────────────
+  let _speakNextReply = false;
+  function _plainForSpeech(md) {
+    return String(md || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/[*_#>`|~]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 1200);
+  }
+  function stopSpeaking() {
+    try { window.speechSynthesis?.cancel(); } catch {}
+  }
+  function speak(text) {
+    const s = typeof window !== 'undefined' ? window.speechSynthesis : null;
+    const plain = _plainForSpeech(text);
+    if (!s || !plain || typeof SpeechSynthesisUtterance === 'undefined') return;
+    try {
+      s.cancel();
+      const u = new SpeechSynthesisUtterance(plain);
+      u.lang = _resolveVoiceLang();
+      u.rate = 1.02;
+      s.speak(u);
+    } catch (e) { console.warn('[trace-voice] speak failed:', e?.message || e); }
+  }
+  async function _askByVoice(text) {
+    panelOpen = true;
+    input = text;
+    _speakNextReply = !!$voiceSpeakReplies;
+    await send();
+  }
+
   async function _processTranscript(text) {
     if (!text || !text.trim()) {
       showError("Didn't catch that — try again");
@@ -1216,9 +1254,9 @@
       let names;
       userMealNames.subscribe(v => names = v)();
       const parsed = await parseInput(text, names || ['Breakfast','Lunch','Dinner','Snacks']);
-      if (!parsed.items || parsed.items.length === 0) {
-        console.warn('[trace-hold] no items parsed from:', text);
-        showError(`Couldn't find any food in "${text}"`);
+      if (parsed.intent === 'chat' || !parsed.items || parsed.items.length === 0) {
+        // Fork: a question (or nothing food-like) → ask Trace, answer aloud.
+        await _askByVoice(text);
         return;
       }
       const matches = await matchItems(parsed.items);
@@ -1840,6 +1878,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
       messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
+      if (_speakNextReply) { _speakNextReply = false; speak(reply); }
       // Persist assistant reply to server (best-effort)
       NtApi.post('/api/ai/history', { role: 'assistant', content: reply }).catch(() => {});
       if (!panelOpen) hasUnread = true;
@@ -2106,7 +2145,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     <div
       class="ai-backdrop" use:closeOnBack={() => panelOpen = false}
       transition:fade={{ duration: 200 }}
-      on:click={() => panelOpen = false}
+      on:click={() => { panelOpen = false; stopSpeaking(); }}
       on:keydown={() => {}}
     ></div>
 

@@ -45,7 +45,10 @@ The user's configured meal slots are: [${namesQuoted}]${containerHint}
 
 Rules:
 - Return ONLY valid JSON, no commentary, no markdown fences.
-- Top-level shape: { "meal": <slot name from the list above, or null>, "items": [ ... ] }
+- Top-level shape: { "intent": "log" | "chat", "meal": <slot name from the list above, or null>, "items": [ ... ] }
+- intent (fork addition): "log" when the user is describing food or water they ate/drank or want logged.
+  "chat" when it's a question or anything else ("how much protein do I have left?", "what should I eat
+  for dinner?", "how are you"); then return "items": []. Mixed ("log two eggs, how many calories is that?") is "log".
 - Each item has: name (string), quantity (number, default 1), unit (string or null), kind ("food" | "meal" | "recipe" | "yesterday" | "water").
 - Food items ALSO have (fork addition):
   * brand: the brand, restaurant or store named for it ("Costco", "McDonald's", "Chobani"), else null. Keep it OUT of name.
@@ -160,7 +163,9 @@ export async function parseInput(text, userMealNames) {
       }));
     // Meal can be any of the user's slot names (free string, validated downstream)
     const meal = parsed.meal && typeof parsed.meal === 'string' ? parsed.meal.trim() : null;
-    return { meal, items };
+    // Fork: questions go to the Trace chat instead of failing as "no food found".
+    const intent = parsed.intent === 'chat' && items.length === 0 ? 'chat' : 'log';
+    return { meal, items, intent };
   } catch (e) {
     console.warn('[quick-log] AI returned non-JSON:', jsonText.slice(0, 200));
     throw new Error('AI parser returned invalid JSON. Try rephrasing your input.');

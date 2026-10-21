@@ -54,7 +54,7 @@ export const USER_PREFS = new Set([
   // captured by the local full-backup ZIP. In server mode they're unused.
   'localUserName','localUserNickname','localUserAvatar',
   'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights','smartLogVoiceLang',
-  'photoLogWebSearch',
+  'photoLogWebSearch','voiceSpeakReplies','aiAskWhenUnsure',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
@@ -997,6 +997,10 @@ try {
 export const quickLogEnabled  = createSettingStore('quickLogEnabled',  false);
 // Fork: let Gemini search the web to confirm a photographed product's nutrition.
 export const photoLogWebSearch = createSettingStore('photoLogWebSearch', true);
+// Fork: read Trace's answer aloud when you asked by voice.
+export const voiceSpeakReplies = createSettingStore('voiceSpeakReplies', true);
+// Fork: let the AI ask one quick question when a photo leaves a big calorie unknown.
+export const aiAskWhenUnsure = createSettingStore('aiAskWhenUnsure', false);
 export const aiGoalInsights   = createSettingStore('aiGoalInsights',   false);
 
 // Notifications

@@ -29,6 +29,8 @@ Reply with ONLY a JSON object, no markdown, no prose. Shape:
   },
   "nutrition": { "calories": number, ...other keys },  // for the WHOLE serving above
   "source": "label" | "web" | "estimate",   // where the numbers came from
+  "divisible": {"count": number, "unit": "slice"} | null,  // see rules
+  "question": {"text": "...", "choices": ["...", "..."]} | null,  // see rules
   "confidence": "high" | "medium" | "low",
   "note": "one short sentence on what you assumed, or null"
 }
@@ -46,7 +48,19 @@ Rules:
 - If you have a web search tool, use it for packaged/branded products and chain-restaurant items
   to find the official nutrition for that exact product and size (source "web"). If nothing
   reliable turns up, give your best estimate (source "estimate", confidence "low" or "medium").
+- divisible: if what's pictured is naturally shared or split (a whole pizza, a cake or pie, a box of
+  nuggets, a sandwich cut in halves, a bag with several servings), give how many pieces it splits into
+  and what one piece is called ({"count": 8, "unit": "slice"}). Nutrition stays for EVERYTHING pictured.
+  Otherwise null.
+- question: null unless the system says questions are allowed.
 - If the photo shows no food or drink, reply {"error": "short reason"}.`;
+
+const ASK_RULES = `
+Questions ARE allowed for this request: if one detail you can't see would change the calories by more
+than about 15% (which dressing or sauce, fried or grilled, whole or skim milk, how many slices of a whole
+pizza they'll eat is NOT a question — that's handled by divisible), set
+"question": {"text": "<one short question>", "choices": ["<2 to 4 short answers>"]}.
+Still return your best estimate for the most likely answer. Never ask about something visible.`;
 
 async function _fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -111,6 +125,17 @@ export function normalizeEstimate(raw) {
     note: raw.note ? String(raw.note).slice(0, 200) : '',
     confidence: ['high', 'medium', 'low'].includes(raw.confidence) ? raw.confidence : 'medium',
     source: ['label', 'web', 'estimate'].includes(raw.source) ? raw.source : 'estimate',
+    divisible: (() => {
+      const c = Math.round(Number(raw.divisible?.count));
+      const u = String(raw.divisible?.unit || '').trim().toLowerCase().slice(0, 20);
+      return c >= 2 && c <= 64 && u ? { count: c, unit: u } : null;
+    })(),
+    question: (() => {
+      const t = String(raw.question?.text || '').trim().slice(0, 140);
+      const ch = Array.isArray(raw.question?.choices)
+        ? raw.question.choices.map(x => String(x).trim().slice(0, 40)).filter(Boolean).slice(0, 4) : [];
+      return t && ch.length >= 2 ? { text: t, choices: ch } : null;
+    })(),
     warnings,
   };
 }
@@ -132,7 +157,7 @@ export function _altUnitsFor(label, amount) {
  * photo becomes the food's picture. webSearch lets Gemini look the product
  * up online (other providers ignore it).
  */
-export async function analyzeMealPhoto(files, { onStage, webSearch } = {}) {
+export async function analyzeMealPhoto(files, { onStage, webSearch, askWhenUnsure = false, answers = [] } = {}) {
   const list = (Array.isArray(files) ? files : [files]).filter(Boolean).slice(0, 3);
   if (!list.length) throw new Error('No photo');
   onStage?.('reading');
@@ -150,19 +175,25 @@ export async function analyzeMealPhoto(files, { onStage, webSearch } = {}) {
   const get = s => { let v; s.subscribe(x => v = x)(); return v; };
   const envLocked = !!get(envLocks)?.ai;
   const provider = get(aiProvider) || 'claude';
-  const prompt = list.length > 1
+  let prompt = list.length > 1
     ? `These ${list.length} photos show the same item (e.g. front and Nutrition Facts). Estimate its nutrition. JSON only.`
     : 'Estimate the nutrition for what is pictured. JSON only.';
+  // Answers the user already gave to earlier questions (fork: Ask Me When Unsure).
+  const told = (answers || []).filter(a => a && a.q && a.a);
+  if (told.length) {
+    prompt += `\nThe user answered: ${told.map(a => `"${a.q}" → "${a.a}"`).join('; ')}. Use these; don't ask again.`;
+  }
+  const systemPrompt = askWhenUnsure && !told.length ? SYSTEM_PROMPT + ASK_RULES : SYSTEM_PROMPT;
   let reply;
   if (envLocked) {
-    reply = await callAIProxy({ messages: [_imageMessage('openai', prompt, images)], systemPrompt: SYSTEM_PROMPT, tools: [] });
+    reply = await callAIProxy({ messages: [_imageMessage('openai', prompt, images)], systemPrompt, tools: [] });
   } else {
     const apiKey = get(aiApiKey);
     if (!apiKey && provider !== 'oai-compat') throw new Error('Add your AI key in Settings → AI Assistant');
     const msgProvider = provider === 'oai-compat' ? 'openai' : provider;
     const args = {
       provider, apiKey, model: get(aiModel) || undefined, baseUrl: get(aiBaseUrl) || undefined,
-      messages: [_imageMessage(msgProvider, prompt, images)], systemPrompt: SYSTEM_PROMPT, tools: [],
+      messages: [_imageMessage(msgProvider, prompt, images)], systemPrompt, tools: [],
     };
     try {
       reply = await callAI({ ...args, webSearch: !!webSearch && provider === 'gemini' });
@@ -196,7 +227,9 @@ export async function saveEstimatedFood(estimate, imageDataUrl) {
     imgUrl: imageDataUrl,
     notes: [estimate.label, estimate.note].filter(Boolean).join(' · ') || null,
     nutrition_basis: estimate.unit,
-    alt_units: _altUnitsFor(estimate.label, estimate.amount),
+    alt_units: estimate.divisible && estimate.wholeAmount > 0
+      ? [{ abbr: estimate.divisible.unit.replace(/s$/, ''), grams: Math.round((estimate.wholeAmount / estimate.divisible.count) * 10) / 10 }]
+      : _altUnitsFor(estimate.label, estimate.amount),
     visibility: 'private',
   });
 }
@@ -226,4 +259,16 @@ export async function logMealPhoto(files, mealIdx, date, { onStage, webSearch } 
     ? Math.round(estimate.nutrition.calories)
     : await logPhotoServing(food, estimate, imageDataUrl, mealIdx, date);
   return { food, estimate, kcal, imageDataUrl, logged: mealIdx != null };
+}
+
+/** Fork: portion of a divisible item, e.g. 2 of 8 slices → estimate for 2 slices. */
+export function portionOf(whole, pieces) {
+  if (!whole?.divisible || !(pieces > 0)) return whole;
+  const frac = Math.min(1, pieces / whole.divisible.count);
+  const amount = Math.round(whole.amount * frac * 10) / 10;
+  const r = rescaleEstimate(whole, amount);
+  const n = Math.round(pieces * 100) / 100;
+  const label = frac >= 1 ? (whole.label || `whole (${whole.divisible.count} ${whole.divisible.unit}s)`)
+    : `${n} ${n === 1 ? whole.divisible.unit.replace(/s$/, '') : whole.divisible.unit.replace(/s?$/, 's')} of ${whole.divisible.count}`;
+  return { ...r, label, wholeAmount: whole.amount, pieces: n };
 }

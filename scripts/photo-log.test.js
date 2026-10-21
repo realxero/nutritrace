@@ -45,3 +45,28 @@ test('count labels become alt units; plain sizes do not', () => {
   assert.equal(_altUnitsFor('20 oz', 591), null);
   assert.equal(_altUnitsFor('', 100), null);
 });
+
+import { portionOf } from '../src/lib/photo-log.js';
+
+test('divisible + question are parsed and validated', () => {
+  const e = normalizeEstimate({ ...good, divisible: { count: 8, unit: 'Slice' },
+    question: { text: 'Pepperoni or cheese?', choices: ['Pepperoni', 'Cheese'] } });
+  assert.deepEqual(e.divisible, { count: 8, unit: 'slice' });
+  assert.equal(e.question.choices.length, 2);
+  const bad = normalizeEstimate({ ...good, divisible: { count: 1, unit: 'slice' }, question: { text: 'x', choices: ['only one'] } });
+  assert.equal(bad.divisible, null);
+  assert.equal(bad.question, null);
+});
+
+test('portionOf: 2 of 8 slices is a quarter of everything', () => {
+  const whole = normalizeEstimate({ name: 'Pepperoni pizza', serving: { amount: 800, unit: 'g', label: '1 large pizza' },
+    nutrition: { calories: 2400, proteins: 100, carbohydrates: 260, fat: 100 }, divisible: { count: 8, unit: 'slice' } });
+  const two = portionOf(whole, 2);
+  assert.equal(two.amount, 200);
+  assert.equal(two.nutrition.calories, 600);
+  assert.equal(two.label, '2 slices of 8');
+  assert.equal(two.wholeAmount, 800);
+  assert.equal(portionOf(whole, 1).label, '1 slice of 8');
+  assert.equal(portionOf(whole, 8).nutrition.calories, 2400);
+  assert.equal(portionOf(whole, 4).nutrition.calories, 1200);
+});

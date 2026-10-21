@@ -6,8 +6,8 @@
   // (mealIdx null) the card offers a button per meal.
   import { fly, fade } from 'svelte/transition';
   import { portal } from '../../lib/portal.js';
-  import { analyzeMealPhoto, saveEstimatedFood, logPhotoServing, rescaleEstimate } from '../../lib/photo-log.js';
-  import { aiProvider, envLocks, mealNames, photoLogWebSearch } from '../../stores/settings.js';
+  import { analyzeMealPhoto, saveEstimatedFood, logPhotoServing, rescaleEstimate, portionOf } from '../../lib/photo-log.js';
+  import { aiProvider, envLocks, mealNames, photoLogWebSearch, aiAskWhenUnsure } from '../../stores/settings.js';
   import { localDateStr } from '../../lib/db.js';
 
   export let mealIdx = null;     // null = Foods tab: choose a meal on the card
@@ -21,6 +21,10 @@
   let state = null;
   let run = 0;                   // newer analysis supersedes older ones
   let form = null;               // editable copy of the estimate
+  let whole = null;              // full estimate of a divisible item (pizza, cake…)
+  let pieces = null;             // how many pieces the user is eating
+  let answers = [];              // [{q, a}] answers to the AI's questions
+  let questionDismissed = false;
 
   const PROVIDER_NAMES = { gemini: 'Gemini', claude: 'Claude', openai: 'OpenAI', 'oai-compat': 'your AI' };
   $: isGemini = !$envLocks?.ai && $aiProvider === 'gemini';
@@ -49,6 +53,7 @@
     } else {
       cleanup();
       state = { files: [file], previews: [preview], stage: 'reading' };
+      answers = []; questionDismissed = false;
     }
     analyze();
   }
@@ -60,10 +65,14 @@
     try {
       const { estimate, imageDataUrl } = await analyzeMealPhoto(state.files, {
         webSearch: $photoLogWebSearch,
+        askWhenUnsure: $aiAskWhenUnsure,
+        answers,
         onStage: stage => { if (my === run) state = { ...state, stage }; },
       });
       if (my !== run) return;
-      state = { ...state, estimate, imageDataUrl };
+      whole = estimate.divisible ? estimate : null;
+      pieces = whole ? whole.divisible.count : null;
+      state = { ...state, estimate: whole ? { ...estimate, wholeAmount: estimate.amount } : estimate, imageDataUrl };
       form = {
         name: estimate.name, amount: estimate.amount, unit: estimate.unit,
         calories: estimate.nutrition.calories ?? 0, proteins: estimate.nutrition.proteins ?? 0,
@@ -72,6 +81,32 @@
     } catch (err) {
       if (my === run) state = { ...state, error: err?.message || String(err) };
     }
+  }
+
+  // Divisible items: pick how many pieces → everything rescales from the whole.
+  function pickPieces(n) {
+    if (!whole) return;
+    pieces = n;
+    const est = portionOf(whole, n);
+    state = { ...state, estimate: est };
+    form = { ...form, amount: est.amount, calories: est.nutrition.calories, proteins: est.nutrition.proteins,
+             carbohydrates: est.nutrition.carbohydrates, fat: est.nutrition.fat };
+  }
+  $: pieceChoices = whole ? [...new Set([1, 2, 3, Math.round(whole.divisible.count / 2), whole.divisible.count]
+      .filter(n => n >= 1 && n <= whole.divisible.count))].sort((a, b) => a - b) : [];
+  function pieceLabel(n) {
+    const u = whole.divisible.unit.replace(/s$/, '');
+    if (n === whole.divisible.count) return 'All';
+    if (n * 2 === whole.divisible.count) return 'Half';
+    return `${n} ${n === 1 ? u : u + 's'}`;
+  }
+
+  // Ask Me When Unsure: answer → re-check with the answer; skip → keep the guess.
+  function answerQuestion(choice) {
+    const q = state?.estimate?.question;
+    if (!q) return;
+    answers = [...answers, { q: q.text, a: choice }];
+    analyze();
   }
 
   // Changing the amount rescales the numbers; typing a number overrides it.
@@ -168,6 +203,25 @@
       </div>
       <input class="pl-name-input" bind:value={form.name} aria-label="Food name" data-testid="pl-name" />
       {#if state.estimate.label}<div class="pl-sub">{state.estimate.label}</div>{/if}
+      {#if state.estimate.question && !questionDismissed}
+        <div class="pl-question" data-testid="pl-question">
+          <div class="pl-q-text">🤔 {state.estimate.question.text}</div>
+          <div class="pl-meals">
+            {#each state.estimate.question.choices as c}
+              <button class="pl-meal" on:click={() => answerQuestion(c)}>{c}</button>
+            {/each}
+            <button class="pl-meal skip" on:click={() => questionDismissed = true}>Skip, use best guess</button>
+          </div>
+        </div>
+      {/if}
+      {#if whole}
+        <div class="pl-log-label">How much are you having? ({whole.divisible.count} {whole.divisible.unit.replace(/s?$/, 's')} in total)</div>
+        <div class="pl-meals" data-testid="pl-portions">
+          {#each pieceChoices as n}
+            <button class="pl-meal" class:suggested={pieces === n} on:click={() => pickPieces(n)}>{pieceLabel(n)}</button>
+          {/each}
+        </div>
+      {/if}
       <div class="pl-grid">
         <label><span>Amount</span>
           <div class="pl-amt"><input inputmode="decimal" bind:value={form.amount} on:change={onAmount} data-testid="pl-amount" />
@@ -234,6 +288,9 @@
   .pl-grid .c input { color: var(--macro-carbs); } .pl-grid .f input { color: var(--macro-fat); }
   .pl-amt { display: flex; gap: 4px; } .pl-amt select { width: auto; }
   .pl-warn { font-size: .8em; color: #f59e0b; }
+  .pl-question { padding: 8px; border-radius: var(--radius-md, 10px); background: var(--surface-3); display: flex; flex-direction: column; gap: 6px; }
+  .pl-q-text { font-size: .9em; font-weight: 600; }
+  .pl-meal.skip { opacity: .75; }
   .pl-check { display: flex; align-items: center; gap: 6px; font-size: .85em; color: var(--text-2); }
   .pl-btn { padding: 9px 12px; border-radius: var(--radius-md, 10px); border: 1px solid var(--border); background: var(--surface-3); color: var(--text-1); font-weight: 600; cursor: pointer; }
   .pl-btn.primary { background: var(--accent); color: #04120b; border-color: transparent; }
