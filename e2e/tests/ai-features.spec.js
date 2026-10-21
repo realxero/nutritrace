@@ -169,3 +169,26 @@ test('fetch-image route: login required, junk and home-network links refused', a
   expect(internal.ok()).toBe(false);
   expect((await internal.json()).error).toBeTruthy();
 });
+
+test('typing several foods in the chat opens one Smart Log list (not item by item)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoDiary(page);
+  await page.locator('.ai-fab').click();
+  await page.locator('.ai-textarea').fill('for breakfast I had 2 eggs, toast and 6 cronuts');
+  await page.locator('.ai-send-btn').click();
+  const add = page.getByRole('button', { name: /Add 3 to Diary/ });
+  await expect(add).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/I put all 3 items in one review list/).first()).toBeAttached();
+  await add.click();
+  await expect(page.getByText(/Logged 3 items/)).toBeVisible({ timeout: 20_000 });
+  expect(errors).toEqual([]);
+});
+
+test('a single-food chat message still goes to the normal chat', async ({ page }) => {
+  await gotoDiary(page);
+  await page.locator('.ai-fab').click();
+  await page.locator('.ai-textarea').fill('how much protein do I have left');
+  await page.locator('.ai-send-btn').click();
+  await expect(page.getByText('You have 82 grams of protein left today.').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: /to Diary/ })).toHaveCount(0);
+});

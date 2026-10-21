@@ -62,7 +62,17 @@
   // prior pending food card. Commit path is one of:
   //   _commitFoodCatalogOnly  — create food row, no diary write
   //   _commitFoodAndLog       — create food row AND log it to diary
-  let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, notes }
+  let _pendingFoodProposal = null; // { name, brand, portion, unit, nutrition, notes, date }
+  // Fork: further proposals from the same answer wait here instead of
+  // replacing the card on screen (the 4-item breakfast lost 3 cards).
+  let _foodProposalQueue = [];
+  function _advanceFoodProposal() {
+    _pendingFoodProposal = _foodProposalQueue.length ? _foodProposalQueue[0] : null;
+    _foodProposalQueue = _foodProposalQueue.slice(1);
+    _foodProposalCommitted = false;
+    _foodProposalCommittedKind = '';
+    _foodProposalCommittedMealIdx = null;
+  }
   let _foodProposalCommitted = false;
   let _foodProposalCommittedKind = '';   // 'catalog' | 'logged'
   // null = Don't Log. The card starts there: saving a food must never
@@ -813,7 +823,12 @@
             const n = Number(v);
             if (Number.isFinite(n) && n >= 0) clean[k] = Math.round(n * 10) / 10;
           }
-          const payload = { name, brand, portion, unit, nutrition: clean, notes };
+          const date = (typeof args?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.date)) ? args.date : null;
+          const payload = { name, brand, portion, unit, nutrition: clean, notes, date };
+          if (_pendingFoodProposal && !_foodProposalCommitted) {
+            _foodProposalQueue = [..._foodProposalQueue, payload];
+            return { ok: true, kind: 'food_proposal', queued: true, note: `Card ${_foodProposalQueue.length + 1} is queued; the user reviews them one after another.`, ...payload };
+          }
           _pendingFoodProposal = payload;
           _foodProposalCommitted = false;
           _foodProposalCommittedKind = '';
@@ -1239,6 +1254,36 @@
     input = text;
     _speakNextReply = !!$voiceSpeakReplies;
     await send();
+  }
+
+  function _looksLikeMultiFoodLog(t) {
+    const s = String(t || '');
+    const verb = /\b(log|logged|had|ate|eaten|drank|add|track)\b|\bfor (breakfast|lunch|dinner|snacks?)\b/i.test(s);
+    const several = (s.match(/,/g) || []).length >= 1 || /\band\b|\bplus\b/i.test(s);
+    return verb && several && s.length < 600;
+  }
+  async function _tryBatchLog(text) {
+    loading = true;
+    try {
+      const { parseInput, matchItems } = await import('../../lib/quick-log.js');
+      const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
+      const parsed = await parseInput(text, names);
+      const foods = (parsed.items || []).filter(i => i.kind === 'food' || !i.kind);
+      if (parsed.intent === 'chat' || foods.length < 2) return false;
+      const matches = await matchItems(parsed.items);
+      smartLogText = text;
+      smartLogPreParsed = matches;
+      smartLogMeal = parsed.meal;
+      showSmartLog = true;
+      messages = [...messages, { role: 'assistant', time: fmtTime(), _local: true,
+        content: `I put all ${parsed.items.length} items in one review list${parsed.meal ? ` for ${parsed.meal}` : ''}. Check the amounts (swap any match that's wrong), then tap Add ${parsed.items.length} to Diary.` }];
+      return true;
+    } catch (e) {
+      console.warn('[trace] batch log fell back to chat:', e?.message || e);
+      return false;
+    } finally {
+      loading = false;
+    }
   }
 
   async function _processTranscript(text) {
@@ -1806,6 +1851,13 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     messages = [...messages, userMsg];
     input    = '';
     attachedImage = null;
+
+    // Fork: several foods in one message ("for breakfast I had X, Y and 6 Z")
+    // go to Smart Log's single review list (quantities, an estimate per item,
+    // one Add button) instead of the chat logging them one at a time.
+    if (!image && _looksLikeMultiFoodLog(content)) {
+      if (await _tryBatchLog(content)) return;
+    }
     loading  = true;
     // #158: hold a screen wake lock while the request is in-flight so
     // the user doesn't have to keep tapping the screen when a slow
@@ -1880,7 +1932,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
       // Fork: never leave the chat silent. An empty answer gets a visible note.
       const shown = String(reply || '').trim() ? reply
-        : "I couldn't finish that one. Try again with the amount and calories, e.g. \"log 1 bottle (547 ml) of Pure Leaf lemon tea, 150 calories\".";
+        : "I couldn't finish that one. Try again with the amount (and calories if you know them).";
       messages = [...messages, { role: 'assistant', content: shown, time: fmtTime() }];
       if (_speakNextReply) { _speakNextReply = false; speak(reply); }
       // Persist assistant reply to server (best-effort)
@@ -1889,7 +1941,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     } catch (e) {
       // Fork: errors used to show only as a toast hidden behind the chat.
       const msg = /too many tool call rounds/i.test(e?.message || '')
-        ? "I got stuck trying to log that. The database entry didn't match what you showed me. Tell me the amount and calories (e.g. \"1 bottle, 547 ml, 150 calories\") and I'll log it exactly."
+        ? "I got stuck trying to log that. Tell me the amount for each item (and calories if you know them), one item per message if it's a long list, and I'll log it exactly."
         : `Something went wrong: ${e?.message || 'AI request failed'}`;
       _chatNotice(msg);
     } finally {
@@ -2064,9 +2116,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   //                              meal the user picked on the card
 
   function _discardFoodProposal() {
-    _pendingFoodProposal = null;
-    _foodProposalCommitted = false;
-    _foodProposalCommittedKind = '';
+    _advanceFoodProposal();
   }
 
   /** Save the proposed food to /api/foods only. No diary write. */
@@ -2076,6 +2126,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       await _saveProposedFood();
       _foodProposalCommittedKind = 'catalog';
       _foodProposalCommitted = true;
+      if (_foodProposalQueue.length) setTimeout(_advanceFoodProposal, 1200);
     } catch (e) {
       showError($_('common.errors.save_failed') + ': ' + (e?.message || String(e)));
     }
@@ -2098,9 +2149,10 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
         ...food,
         portion: p.portion,
         unit:    p.unit,
-      }, _foodProposalCommittedMealIdx, localDateStr());
+      }, _foodProposalCommittedMealIdx, p.date || localDateStr());
       _foodProposalCommittedKind = 'logged';
       _foodProposalCommitted = true;
+      if (_foodProposalQueue.length) setTimeout(_advanceFoodProposal, 1200);
     } catch (e) {
       showError($_('common.errors.save_failed') + ': ' + (e?.message || String(e)));
     }
@@ -2376,7 +2428,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
                       {_pendingFoodProposal.name}{#if _pendingFoodProposal.brand} <span class="proposal-brand">— {_pendingFoodProposal.brand}</span>{/if}
                     </div>
                     <div class="proposal-serving">
-                      Per {_pendingFoodProposal.portion} {_pendingFoodProposal.unit}
+                      Per {_pendingFoodProposal.portion} {_pendingFoodProposal.unit}{#if _pendingFoodProposal.date && _pendingFoodProposal.date !== localDateStr()} · for {_pendingFoodProposal.date}{/if}{#if _foodProposalQueue.length} · <span data-testid="proposal-more">+{_foodProposalQueue.length} more after this</span>{/if}
                     </div>
                   </div>
                   <NutritionFactsBox

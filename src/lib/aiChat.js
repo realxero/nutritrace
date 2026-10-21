@@ -222,6 +222,7 @@ export const TOOLS = [
         unit:      { type: 'string', description: 'Portion unit, defaults to "g". Common: g, ml, piece, slice, cup, oz. Prefer "g" for solid foods so the user can correct it numerically.' },
         nutrition: NUTRITION_SCHEMA,
         notes:     { type: 'string', description: 'OPTIONAL human-friendly serving descriptor saved to the food\'s Notes field (e.g. "14 chips", "1/4 cup uncooked", "1 medium slice", "approx 1 cup cooked"). Lets the user see what the per-portion weight actually corresponds to in everyday terms. Shown in the diary when "Show item notes" is enabled in Settings. Skip when the portion + unit already says everything that needs saying.' },
+        date: { type: 'string', description: 'Optional YYYY-MM-DD the food should be logged on if the user taps Save & Log (e.g. yesterday). Defaults to today.' },
       },
       required: ['name', 'nutrition'],
     },
@@ -286,7 +287,7 @@ export async function callAIProxy({ messages, systemPrompt, tools, onToolCall })
   const { apiUrl, isNative, getServerUrl, getAuthToken } = await import('./platform.js');
 
   let currentMessages = [...messages];
-  const MAX_ROUNDS = 5;
+  const MAX_ROUNDS = 8; // fork: several foods in one message need more rounds
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const headers = { 'Content-Type': 'application/json' };
@@ -409,7 +410,7 @@ async function _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools
   }));
 
   let currentMessages = [...messages];
-  const MAX_ROUNDS = 5;
+  const MAX_ROUNDS = 8; // fork: several foods in one message need more rounds
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const body = {
@@ -468,7 +469,7 @@ async function _callOpenAIWithTools(apiKey, model, messages, systemPrompt, tools
     { role: 'system', content: systemPrompt },
     ...messages,
   ];
-  const MAX_ROUNDS = 5;
+  const MAX_ROUNDS = 8; // fork: several foods in one message need more rounds
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const selectedModel = model || AI_DEFAULT_MODELS.openai;
@@ -564,7 +565,7 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     return { role: msg.role === 'assistant' ? 'model' : 'user', parts };
   });
 
-  const MAX_ROUNDS = 5;
+  const MAX_ROUNDS = 8; // fork: several foods in one message need more rounds
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const body = {
