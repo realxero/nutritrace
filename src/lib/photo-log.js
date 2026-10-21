@@ -29,7 +29,8 @@ Reply with ONLY a JSON object, no markdown, no prose. Shape:
   },
   "nutrition": { "calories": number, ...other keys },  // for the WHOLE serving above
   "source": "label" | "web" | "estimate",   // where the numbers came from
-  "divisible": {"count": number, "unit": "slice"} | null,  // see rules
+  "divisible": {"count": number, "unit": "slice", "typical": number} | null,  // see rules
+  "shared": true | false,       // see rules
   "question": {"text": "...", "choices": ["...", "..."]} | null,  // see rules
   "confidence": "high" | "medium" | "low",
   "note": "one short sentence on what you assumed, or null"
@@ -48,10 +49,17 @@ Rules:
 - If you have a web search tool, use it for packaged/branded products and chain-restaurant items
   to find the official nutrition for that exact product and size (source "web"). If nothing
   reliable turns up, give your best estimate (source "estimate", confidence "low" or "medium").
-- divisible: if what's pictured is naturally shared or split (a whole pizza, a cake or pie, a box of
-  nuggets, a sandwich cut in halves, a bag with several servings), give how many pieces it splits into
-  and what one piece is called ({"count": 8, "unit": "slice"}). Nutrition stays for EVERYTHING pictured.
-  Otherwise null.
+- shared: true when what's pictured is clearly food for several people, not one person's portion:
+  a whole roast or turkey, a full pan of lasagna or casserole, a pot of soup or chili, a whole cake or pie,
+  a platter, a party-size bag. false for one person's plate or bowl, a single packaged item, a personal
+  pizza, or a slice already on a plate.
+- divisible: when the pictured food is eaten in portions (a pizza, cake, pie, lasagna, casserole, roast,
+  turkey, pot of soup, box of nuggets, bag with several servings), give
+  {"count": <how many portions the whole pictured thing makes>,
+   "unit": <what one portion is called: "slice", "piece", "serving", "bowl", "nugget">,
+   "typical": <how many of those one adult usually eats in a sitting; decimals ok>}.
+  Use slices/pieces when it's cut that way; for roasts, turkey, soups and stews use "serving"
+  (about 150 g of meat or one 300 ml bowl). Nutrition stays for EVERYTHING pictured. Otherwise null.
 - question: null unless the system says questions are allowed.
 - If the photo shows no food or drink, reply {"error": "short reason"}.`;
 
@@ -128,8 +136,12 @@ export function normalizeEstimate(raw) {
     divisible: (() => {
       const c = Math.round(Number(raw.divisible?.count));
       const u = String(raw.divisible?.unit || '').trim().toLowerCase().slice(0, 20);
-      return c >= 2 && c <= 64 && u ? { count: c, unit: u } : null;
+      if (!(c >= 2 && c <= 120 && u)) return null;
+      let t = Number(raw.divisible?.typical);
+      t = Number.isFinite(t) && t > 0 ? Math.min(c, Math.round(t * 2) / 2 || 0.5) : 1;
+      return { count: c, unit: u, typical: t };
     })(),
+    shared: raw.shared === true,
     question: (() => {
       const t = String(raw.question?.text || '').trim().slice(0, 140);
       const ch = Array.isArray(raw.question?.choices)

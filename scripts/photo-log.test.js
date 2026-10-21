@@ -51,7 +51,7 @@ import { portionOf } from '../src/lib/photo-log.js';
 test('divisible + question are parsed and validated', () => {
   const e = normalizeEstimate({ ...good, divisible: { count: 8, unit: 'Slice' },
     question: { text: 'Pepperoni or cheese?', choices: ['Pepperoni', 'Cheese'] } });
-  assert.deepEqual(e.divisible, { count: 8, unit: 'slice' });
+  assert.deepEqual(e.divisible, { count: 8, unit: 'slice', typical: 1 });
   assert.equal(e.question.choices.length, 2);
   const bad = normalizeEstimate({ ...good, divisible: { count: 1, unit: 'slice' }, question: { text: 'x', choices: ['only one'] } });
   assert.equal(bad.divisible, null);
@@ -69,4 +69,19 @@ test('portionOf: 2 of 8 slices is a quarter of everything', () => {
   assert.equal(portionOf(whole, 1).label, '1 slice of 8');
   assert.equal(portionOf(whole, 8).nutrition.calories, 2400);
   assert.equal(portionOf(whole, 4).nutrition.calories, 1200);
+});
+
+test('shared dishes: typical portion parsed, clamped to halves and the count', () => {
+  const lasagna = normalizeEstimate({ name: 'Lasagna', serving: { amount: 2700, unit: 'g' }, nutrition: { calories: 3600 },
+    divisible: { count: 9, unit: 'piece', typical: 1.3 }, shared: true });
+  assert.equal(lasagna.shared, true);
+  assert.deepEqual(lasagna.divisible, { count: 9, unit: 'piece', typical: 1.5 });
+  assert.equal(portionOf(lasagna, lasagna.divisible.typical).nutrition.calories, 600);
+  const noTypical = normalizeEstimate({ name: 'x', serving: { amount: 100, unit: 'g' }, nutrition: { calories: 100 },
+    divisible: { count: 4, unit: 'slice' } });
+  assert.equal(noTypical.divisible.typical, 1);
+  assert.equal(noTypical.shared, false);
+  const huge = normalizeEstimate({ name: 'x', serving: { amount: 100, unit: 'g' }, nutrition: { calories: 100 },
+    divisible: { count: 4, unit: 'slice', typical: 9 } });
+  assert.equal(huge.divisible.typical, 4);
 });

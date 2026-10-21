@@ -71,12 +71,15 @@
       });
       if (my !== run) return;
       whole = estimate.divisible ? estimate : null;
-      pieces = whole ? whole.divisible.count : null;
-      state = { ...state, estimate: whole ? { ...estimate, wholeAmount: estimate.amount } : estimate, imageDataUrl };
+      // A dish for the table (turkey, lasagna pan, pot of chili) starts at one
+      // person's usual portion; one person's food starts at all of it.
+      pieces = whole ? (estimate.shared ? estimate.divisible.typical : estimate.divisible.count) : null;
+      const first = whole ? portionOf(estimate, pieces) : estimate;
+      state = { ...state, estimate: whole ? { ...first, wholeAmount: estimate.amount } : estimate, imageDataUrl };
       form = {
-        name: estimate.name, amount: estimate.amount, unit: estimate.unit,
-        calories: estimate.nutrition.calories ?? 0, proteins: estimate.nutrition.proteins ?? 0,
-        carbohydrates: estimate.nutrition.carbohydrates ?? 0, fat: estimate.nutrition.fat ?? 0,
+        name: estimate.name, amount: first.amount, unit: estimate.unit,
+        calories: first.nutrition.calories ?? 0, proteins: first.nutrition.proteins ?? 0,
+        carbohydrates: first.nutrition.carbohydrates ?? 0, fat: first.nutrition.fat ?? 0,
       };
     } catch (err) {
       if (my === run) state = { ...state, error: err?.message || String(err) };
@@ -92,13 +95,20 @@
     form = { ...form, amount: est.amount, calories: est.nutrition.calories, proteins: est.nutrition.proteins,
              carbohydrates: est.nutrition.carbohydrates, fat: est.nutrition.fat };
   }
-  $: pieceChoices = whole ? [...new Set([1, 2, 3, Math.round(whole.divisible.count / 2), whole.divisible.count]
-      .filter(n => n >= 1 && n <= whole.divisible.count))].sort((a, b) => a - b) : [];
+  // Quick picks: their usual portion, 1–3, half, all (deduped, in order).
+  $: pieceChoices = whole ? [...new Set([whole.divisible.typical, 1, 2, 3, whole.divisible.count / 2, whole.divisible.count]
+      .filter(n => n > 0 && n <= whole.divisible.count))].sort((a, b) => a - b) : [];
+  $: unitOne = whole ? whole.divisible.unit.replace(/s$/, '') : '';
+  function unitFor(n) { return n === 1 ? unitOne : unitOne + 's'; }
   function pieceLabel(n) {
-    const u = whole.divisible.unit.replace(/s$/, '');
     if (n === whole.divisible.count) return 'All';
-    if (n * 2 === whole.divisible.count) return 'Half';
-    return `${n} ${n === 1 ? u : u + 's'}`;
+    if (n * 2 === whole.divisible.count && n > 3) return 'Half';
+    return `${n} ${unitFor(n)}`;
+  }
+  // Step by halves for anything else ("1.5 servings of turkey").
+  function stepPieces(d) {
+    const next = Math.round(((pieces || 0) + d) * 2) / 2;
+    if (next >= 0.5 && next <= whole.divisible.count) pickPieces(next);
   }
 
   // Ask Me When Unsure: answer → re-check with the answer; skip → keep the guess.
@@ -215,11 +225,19 @@
         </div>
       {/if}
       {#if whole}
-        <div class="pl-log-label">How much are you having? ({whole.divisible.count} {whole.divisible.unit.replace(/s?$/, 's')} in total)</div>
+        {#if whole.shared}
+          <div class="pl-shared" data-testid="pl-shared">Looks like a dish for sharing, so this logs your portion, not the whole thing.</div>
+        {/if}
+        <div class="pl-log-label">How much are you having? (the whole thing is about {whole.divisible.count} {unitFor(whole.divisible.count)})</div>
         <div class="pl-meals" data-testid="pl-portions">
           {#each pieceChoices as n}
             <button class="pl-meal" class:suggested={pieces === n} on:click={() => pickPieces(n)}>{pieceLabel(n)}</button>
           {/each}
+        </div>
+        <div class="pl-stepper" data-testid="pl-stepper">
+          <button class="pl-meal" aria-label="Less" on:click={() => stepPieces(-0.5)}>−</button>
+          <span data-testid="pl-pieces">{pieces} {unitFor(pieces)}</span>
+          <button class="pl-meal" aria-label="More" on:click={() => stepPieces(0.5)}>+</button>
         </div>
       {/if}
       <div class="pl-grid">
@@ -291,6 +309,9 @@
   .pl-question { padding: 8px; border-radius: var(--radius-md, 10px); background: var(--surface-3); display: flex; flex-direction: column; gap: 6px; }
   .pl-q-text { font-size: .9em; font-weight: 600; }
   .pl-meal.skip { opacity: .75; }
+  .pl-shared { font-size: .8em; color: var(--accent); }
+  .pl-stepper { display: flex; align-items: center; gap: 10px; font-size: .9em; }
+  .pl-stepper span { min-width: 90px; text-align: center; font-weight: 600; }
   .pl-check { display: flex; align-items: center; gap: 6px; font-size: .85em; color: var(--text-2); }
   .pl-btn { padding: 9px 12px; border-radius: var(--radius-md, 10px); border: 1px solid var(--border); background: var(--surface-3); color: var(--text-1); font-weight: 600; cursor: pointer; }
   .pl-btn.primary { background: var(--accent); color: #04120b; border-color: transparent; }

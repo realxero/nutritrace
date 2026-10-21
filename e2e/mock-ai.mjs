@@ -51,6 +51,16 @@ function parseFoods(text) {
 
 // Test scenarios: POST /__mock/photo {"scenario":"pizza"|"salad"|"default"} picks the next photo answer.
 let photoScenario = 'default';
+const LASAGNA = {
+  name: 'Lasagna', serving: { amount: 2700, unit: 'g', label: '1 full pan' },
+  nutrition: { calories: 3600, proteins: 216, carbohydrates: 306, fat: 162 },
+  divisible: { count: 9, unit: 'piece', typical: 1 }, shared: true, source: 'estimate', confidence: 'medium',
+};
+const TURKEY = {
+  name: 'Roast turkey', serving: { amount: 3600, unit: 'g', label: '1 whole turkey' },
+  nutrition: { calories: 6120, proteins: 1044, carbohydrates: 0, fat: 216 },
+  divisible: { count: 24, unit: 'serving', typical: 1 }, shared: true, source: 'estimate', confidence: 'medium',
+};
 const PIZZA = {
   name: 'Pepperoni pizza', brand: null,
   serving: { amount: 800, unit: 'g', label: '1 large pizza' },
@@ -81,6 +91,8 @@ function answer(body) {
     const asked = /Questions ARE allowed/.test(sys);
     const answered = (user.match(/The user answered: (.*)$/m) || [])[1] || '';
     if (photoScenario === 'pizza') return JSON.stringify(PIZZA);
+    if (photoScenario === 'lasagna') return JSON.stringify(LASAGNA);
+    if (photoScenario === 'turkey') return JSON.stringify(TURKEY);
     if (photoScenario === 'salad') return JSON.stringify(salad(asked, answered));
     return JSON.stringify(PHOTO);
   }

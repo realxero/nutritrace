@@ -73,3 +73,43 @@ test('Ask Me When Unsure off: no question, best guess', async ({ page }) => {
   await expect(card.getByTestId('pl-kcal')).toHaveValue('320');
   await expect(card.getByTestId('pl-question')).toHaveCount(0);
 });
+
+test('a full pan of lasagna starts at one piece, not the pan', async ({ page }) => {
+  await setScenario('lasagna');
+  await gotoDiary(page);
+  await page.locator('[data-testid="photo-input"]').first().setInputFiles(fixture('can-front.jpg'));
+  const card = page.getByTestId('photo-log-card');
+  await expect(card.getByTestId('pl-shared')).toBeVisible();
+  await expect(card.getByTestId('pl-kcal')).toHaveValue('400');           // 3600 / 9
+  await expect(card.getByTestId('pl-pieces')).toHaveText('1 piece');
+  await card.getByRole('button', { name: 'More' }).click();
+  await expect(card.getByTestId('pl-pieces')).toHaveText('1.5 pieces');
+  await expect(card.getByTestId('pl-kcal')).toHaveValue('600');
+  await card.getByTestId('pl-portions').getByRole('button', { name: 'All' }).click();
+  await expect(card.getByTestId('pl-kcal')).toHaveValue('3600');
+});
+
+test('a whole turkey logs one serving, adjustable by half servings', async ({ page }) => {
+  await setScenario('turkey');
+  await gotoDiary(page);
+  await page.locator('[data-testid="photo-input"]').first().setInputFiles(fixture('can-front.jpg'));
+  const card = page.getByTestId('photo-log-card');
+  await expect(card.getByTestId('pl-kcal')).toHaveValue('255');           // 6120 / 24
+  await expect(card.getByTestId('pl-amount')).toHaveValue('150');
+  await card.getByRole('button', { name: 'More' }).click();
+  await card.getByRole('button', { name: 'More' }).click();
+  await expect(card.getByTestId('pl-pieces')).toHaveText('2 servings');
+  await expect(card.getByTestId('pl-kcal')).toHaveValue('510');
+  await card.getByTestId('pl-log').click();
+  await expect(card).toContainText('Logged to');
+  await expect(page.getByText(/300g.*510 kcal/).first()).toBeVisible();
+});
+
+test('pizza (not shared) still starts at the whole pizza', async ({ page }) => {
+  await setScenario('pizza');
+  await gotoDiary(page);
+  await page.locator('[data-testid="photo-input"]').first().setInputFiles(fixture('can-front.jpg'));
+  const card = page.getByTestId('photo-log-card');
+  await expect(card.getByTestId('pl-kcal')).toHaveValue('2400');
+  await expect(card.getByTestId('pl-shared')).toHaveCount(0);
+});
