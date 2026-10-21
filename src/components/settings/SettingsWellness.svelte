@@ -121,6 +121,32 @@
     { id: 'vigorous_intensity_min', label: 'Vigorous Intensity'  },
     { id: 'sleep_wake_min',         label: 'Wake Time'           },
   ];
+  // Fork: metrics the Apple Health ingest (server/lib/apple-health.js) can
+  // write AND that have a Wellness card. Garmin-only scores (Body Battery,
+  // Stress, intensity minutes) never reach Apple Health, so they're absent.
+  // Apple's HRV is SDNN, stored under hrv_daily_rmssd on purpose.
+  const APPLE_METRICS = [
+    { id: 'active_minutes',     label: 'Exercise Min'    },
+    { id: 'avg_heart_rate',     label: 'Avg Heart Rate'  },
+    { id: 'body_fat_pct',       label: 'Body Fat'        },
+    { id: 'calories_out',       label: 'Calories'        },
+    { id: 'vo2_max',            label: 'Cardio Fitness'  },
+    { id: 'sleep_deep_min',     label: 'Deep Sleep'      },
+    { id: 'distance_km',        label: 'Distance'        },
+    { id: 'floors',             label: 'Floors'          },
+    { id: 'hrv_daily_rmssd',    label: 'HRV (SDNN)'      },
+    { id: 'lean_mass_kg',       label: 'Lean Mass'       },
+    { id: 'sleep_light_min',    label: 'Light Sleep'     },
+    { id: 'max_hr',             label: 'Max HR'          },
+    { id: 'sleep_rem_min',      label: 'REM Sleep'       },
+    { id: 'respiratory_rate',   label: 'Resp. Rate'      },
+    { id: 'resting_hr',         label: 'Resting HR'      },
+    { id: 'sleep_duration_min', label: 'Sleep Duration'  },
+    { id: 'spo2_avg',           label: 'SpO2'            },
+    { id: 'steps',              label: 'Steps'           },
+    { id: 'sleep_wake_min',     label: 'Wake Time'       },
+    { id: 'weight_kg',          label: 'Weight'          },
+  ];
   const WITHINGS_METRICS = [
     { id: 'ecg_afib',            label: 'AFib'               },
     { id: 'basal_metabolic_rate',     label: 'Basal Metabolic Rate' },
@@ -177,7 +203,7 @@
   }
 
   function toggleWellnessMetric(id) {
-    const allIds = [...new Set([...FITBIT_METRICS, ...GARMIN_METRICS, ...WITHINGS_METRICS, ...HC_METRICS].map(m => m.id))];
+    const allIds = [...new Set([...FITBIT_METRICS, ...GARMIN_METRICS, ...WITHINGS_METRICS, ...HC_METRICS, ...APPLE_METRICS].map(m => m.id))];
     const cur = $wellnessMetrics ?? allIds;
     if (cur.includes(id)) {
       wellnessMetrics.set(cur.filter(x => x !== id));
@@ -1387,6 +1413,17 @@
               2. In Health Auto Export on your iPhone: Automations → REST API → URL above, format JSON,
               header <code>Authorization: Bearer &lt;token&gt;</code>, Aggregate Data on, period Days, sync cadence as often as you like.<br>
               Or use an Apple Shortcuts automation that POSTs <code>{'{'}"date":"YYYY-MM-DD","metrics":{'{'}"steps":1234{'}'}{'}'}</code>.
+            </div>
+          </div>
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+            <span class="setting-label">{$_('settings_wellness.common.visible_metrics')}</span>
+            <div class="setting-desc">Includes anything your watch writes to Apple Health (e.g. Garmin Connect). Body Battery and Stress stay Garmin-only.</div>
+            <div class="chip-group" style="flex-wrap:wrap;gap:6px">
+              {#each APPLE_METRICS as m}
+                <button class="chip" class:chip-active={$wellnessMetrics == null || $wellnessMetrics.includes(m.id)}
+                  on:click={() => toggleWellnessMetric(m.id)}>{m.label}</button>
+              {/each}
             </div>
           </div>
         {/if}

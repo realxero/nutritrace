@@ -6,7 +6,7 @@
   import { createEventDispatcher } from 'svelte';
   import { resolveAssetUrl, iconUrl, isNative, getNativeMode } from '../../lib/platform.js';
   import { currentUser, userMgmtActive, logout } from '../../stores/auth.js';
-  import { wellnessEnabled, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, healthConnectEnabled } from '../../stores/settings.js';
+  import { wellnessEnabled, anyWellnessSourceEnabled } from '../../stores/settings.js';
   import WellnessIcon from '../icons/WellnessIcon.svelte';
   import { APP_VERSION } from '../../lib/version.js';
   import { syncState } from '../../lib/sync.js';
@@ -47,7 +47,9 @@
   // for the same source set: Fitbit / Withings / Garmin / Google Health /
   // Health Connect. Earlier omission of healthConnect caused #62 (sidebar
   // hid Wellness for HC-only users while bottom nav showed it).
-  $: showWellness = $wellnessEnabled && ($fitbitEnabled || $withingsEnabled || $garminEnabled || $googleHealthEnabled || $healthConnectEnabled);
+  // Fork: anyWellnessSourceEnabled includes Apple Health, so the tab no
+  // longer needs the Garmin toggle on.
+  $: showWellness = $wellnessEnabled && $anyWellnessSourceEnabled;
   $: navItems = showWellness
     ? [...BASE_NAV.slice(0, 2), WELLNESS_NAV, ...BASE_NAV.slice(2)]
     : BASE_NAV;

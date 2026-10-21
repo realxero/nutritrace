@@ -4,7 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { push } from 'svelte-spa-router';
   import DatePicker from '../components/ui/DatePicker.svelte';
-  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, fitbitFamilyEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
+  import { wellnessMetrics, wellnessSyncRange, distUnit, tempUnit, pageBanners, bannerStyle, dateFormat, withingsSyncRange as withingsSyncRangeSetting, fitbitEnabled, withingsEnabled, garminEnabled, googleHealthEnabled, fitbitFamilyEnabled, appleHealthEnabled, garminSyncRange as garminSyncRangeSetting, weightUnit, goals, goalCelebrations, disableAnimations,
     fitbitSyncMode, withingsSyncMode, garminSyncMode, healthConnectSyncMode, timeFormat } from '../stores/settings.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { localDateStr } from '../lib/db.js';
@@ -84,10 +84,24 @@
   // enabled. The 'fitbit' bucket covers the whole fitbit family (Fitbit
   // OAuth, Google Health Web API, on-device Health Connect) since all
   // three flow through the same server-side data plumbing.
+  // Fork: Apple Health rows ride the fitbit-family data endpoint, but it
+  // supplies its own subset of metrics. Treat it as a separate source so
+  // Apple-only users see exactly what Apple sends: Max HR shows without
+  // the Garmin toggle, and Fitbit-only cards (Sleep Score, Sleep
+  // Efficiency, Active Zone Min…) don't sit empty.
+  // Keep in sync with APPLE_METRICS in SettingsWellness.svelte.
+  const APPLE_HEALTH_METRIC_IDS = new Set([
+    'steps', 'distance_km', 'floors', 'active_minutes', 'calories_out',
+    'avg_heart_rate', 'resting_hr', 'max_hr', 'hrv_daily_rmssd', 'spo2_avg', 'respiratory_rate', 'vo2_max',
+    'sleep_duration_min', 'sleep_deep_min', 'sleep_light_min', 'sleep_rem_min', 'sleep_wake_min',
+    'weight_kg', 'body_fat_pct', 'lean_mass_kg',
+  ]);
+  $: _realFitbitFamily = $fitbitEnabled || $googleHealthEnabled || $healthConnectEnabled;
   function isSourceEnabled(m) {
     if (!m.sources) return true;
+    if ($appleHealthEnabled && APPLE_HEALTH_METRIC_IDS.has(m.id)) return true;
     return m.sources.some(s =>
-      (s === 'fitbit'   && $fitbitFamilyEnabled) ||
+      (s === 'fitbit'   && _realFitbitFamily)     ||
       (s === 'garmin'   && $garminEnabled)       ||
       (s === 'withings' && $withingsEnabled)
     );
