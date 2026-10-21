@@ -349,6 +349,12 @@
 
   onMount(async () => {
     initFold();
+    // Fork: iOS app — sync Apple Health on open and when returning to the app.
+    import('./lib/apple-health-native.js').then(async ({ isIOSApp, startAppleHealthAutoSync }) => {
+      if (!isIOSApp) return;
+      const { appleHealthEnabled } = await import('./stores/settings.js');
+      startAppleHealthAutoSync(() => appleHealthEnabled.get());
+    }).catch(() => {});
     // Update checks: a device that was already using the app keeps checking,
     // a fresh one stays quiet until setup asks. Runs first so nothing above
     // can skip it (see lib/updates.js).

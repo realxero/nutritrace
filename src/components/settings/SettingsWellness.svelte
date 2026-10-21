@@ -31,6 +31,30 @@
   let healthConnectEnabledVal = DB.getSetting('healthConnectEnabled', false);
   let appleHealthEnabledVal = DB.getSetting('appleHealthEnabled', false);
   const appleHealthEndpoint = (typeof location !== 'undefined' ? location.origin : '') + '/api/v1/apple-health';
+  // Fork: iOS app reads HealthKit directly (no Shortcut needed).
+  let ahIOS = false, ahBusy = false, ahMsg = '', ahErr = false, ahLast = null;
+  import('../../lib/apple-health-native.js').then(m => { ahIOS = m.isIOSApp; ahLast = m.lastSyncAt(); }).catch(() => {});
+  async function ahConnect() {
+    ahBusy = true; ahMsg = ''; ahErr = false;
+    try {
+      const m = await import('../../lib/apple-health-native.js');
+      await m.connectAppleHealth();
+      const r = await m.syncAppleHealth({ days: 14 });
+      ahLast = m.lastSyncAt();
+      ahMsg = `Synced ${r.days.length} day${r.days.length === 1 ? '' : 's'} (${r.stored} values).`;
+    } catch (e) { ahErr = true; ahMsg = e?.message || String(e); }
+    finally { ahBusy = false; }
+  }
+  async function ahSyncNow() {
+    ahBusy = true; ahMsg = ''; ahErr = false;
+    try {
+      const m = await import('../../lib/apple-health-native.js');
+      const r = await m.syncAppleHealth({ days: 7 });
+      ahLast = m.lastSyncAt();
+      ahMsg = `Synced ${r.days.length} day${r.days.length === 1 ? '' : 's'} (${r.stored} values).`;
+    } catch (e) { ahErr = true; ahMsg = e?.message || String(e); }
+    finally { ahBusy = false; }
+  }
   let workoutsEnabledVal     = DB.getSetting('workoutsEnabled',     false);
   let lifttraceOverlapFillVal = DB.getSetting('lifttraceOverlapFill', true);
   // #200: opt-in mirror from wellness weight readings → diary Body Stats weight.
@@ -1266,7 +1290,7 @@
     </div>
 
     <!-- Health Connect (Android only) -->
-    {#if isNative}
+    {#if isNative && !ahIOS}
       <p class="sub-label" style="padding-top:16px">
         {$_('settings_wellness.hc.title')}
       </p>
@@ -1403,7 +1427,20 @@
             appleHealthEnabled.set(e.detail);
           }} />
         </div>
-        {#if appleHealthEnabledVal}
+        {#if appleHealthEnabledVal && ahIOS}
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="display:block" data-testid="apple-health-ios">
+            <span class="setting-label">This iPhone</span>
+            <div class="setting-desc">The app reads Apple Health directly and syncs when you open it. No Shortcut needed.
+              {#if ahLast}<br>Last synced {ahLast.toLocaleString()}.{/if}</div>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" disabled={ahBusy} on:click={ahConnect}>{ahBusy ? 'Working…' : 'Connect Apple Health'}</button>
+              <button class="btn btn-secondary btn-sm" disabled={ahBusy} on:click={ahSyncNow}>Sync now</button>
+            </div>
+            {#if ahMsg}<div class="setting-desc" style="margin-top:6px;color:{ahErr ? '#ef4444' : 'var(--accent)'}">{ahMsg}</div>{/if}
+          </div>
+        {/if}
+        {#if appleHealthEnabledVal && !ahIOS}
           <div class="setting-divider"></div>
           <div class="setting-row" style="display:block">
             <span class="setting-label">Endpoint</span>
@@ -1415,6 +1452,8 @@
               Or use an Apple Shortcuts automation that POSTs <code>{'{'}"date":"YYYY-MM-DD","metrics":{'{'}"steps":1234{'}'}{'}'}</code>.
             </div>
           </div>
+        {/if}
+        {#if appleHealthEnabledVal}
           <div class="setting-divider"></div>
           <div class="setting-row" style="align-items:flex-start;flex-direction:column;gap:8px">
             <span class="setting-label">{$_('settings_wellness.common.visible_metrics')}</span>

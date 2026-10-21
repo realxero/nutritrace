@@ -1,0 +1,80 @@
+# Fork: builds the NutriTrace iOS app as an unsigned IPA for sideloading
+# (LiveContainer / SideStore), with HealthKit built in. Published as the
+# "nutritrace-ios" release. A paid Apple developer certificate can re-sign
+# the same IPA later.
+name: NutriTrace iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'ios/**'
+      - 'plugins/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.ts'
+      - '.github/workflows/ios-app.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+
+      - name: Install + build the web app
+        run: |
+          npm ci
+          npm run build
+
+      - name: Sync into the iOS project (runs pod install)
+        run: npx cap sync ios
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            ENABLE_USER_SCRIPT_SANDBOXING=NO \
+            MARKETING_VERSION="1.0.${{ github.run_number }}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            build | tee xcodebuild.log | grep -E "error:|warning: .*HealthSync|BUILD (SUCCEEDED|FAILED)" || true
+          test -d build/Build/Products/Release-iphoneos/App.app
+
+      - name: Embed HealthKit entitlement + package IPA
+        run: |
+          APP=build/Build/Products/Release-iphoneos/App.app
+          # Ad-hoc signatures so the sideloader can see what the app needs;
+          # SideStore/LiveContainer re-sign everything with your Apple ID.
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -maxdepth 1 \( -name "*.framework" -o -name "*.dylib" \) -exec codesign --force --sign - {} \;
+          fi
+          codesign --force --sign - --entitlements ios/App/App/App.entitlements "$APP"
+          codesign -d --entitlements - "$APP"
+          mkdir -p Payload && cp -R "$APP" Payload/
+          zip -qry NutriTrace.ipa Payload
+          ls -lh NutriTrace.ipa
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: xcodebuild-log, path: xcodebuild.log }
+
+      - uses: actions/upload-artifact@v4
+        with: { name: NutriTrace-ipa, path: NutriTrace.ipa }
+
+      - name: Publish as release "nutritrace-ios"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nutritrace-ios --yes --cleanup-tag || true
+          gh release create nutritrace-ios NutriTrace.ipa --prerelease \
+            --title "NutriTrace iOS (sideload build ${{ github.run_number }})" \
+            --notes "Unsigned IPA with HealthKit for LiveContainer / SideStore. Built from ${GITHUB_SHA::7}."

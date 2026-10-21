@@ -30,6 +30,7 @@ import fullBackupRoutes from './routes/full-backup.js';
 import fitbitRoutes       from './routes/fitbit.js';
 import googleHealthRoutes from './routes/google-health.js';
 import withingsRoutes     from './routes/withings.js';
+import appleHealthAppRoutes from './routes/apple-health-app.js'; // fork: iOS app push
 import garminRoutes       from './routes/garmin.js';
 import syncRoutes       from './routes/sync.js';
 import oidcRoutes       from './routes/oidc.js';
@@ -131,6 +132,7 @@ router.use(cookieParser());
 //   http://localhost                 — legacy http scheme
 //   https://app.nutritrace.local     — current app identity (see
 //                                      capacitor.config.ts for why)
+//   capacitor://app.nutritrace.local — iOS app (WKWebView can't use https://)
 // Same-host origins are always allowed (PWA served from this instance).
 router.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -138,7 +140,9 @@ router.use((req, res, next) => {
     const host = req.headers.host;
     const isCapacitor = origin === 'https://localhost'
       || origin === 'http://localhost'
-      || origin === 'https://app.nutritrace.local';
+      || origin === 'https://app.nutritrace.local'
+      || origin === 'capacitor://app.nutritrace.local'
+      || origin === 'capacitor://localhost';
     const isSameHost = host && origin.includes(host);
     if (isCapacitor || isSameHost) {
       res.setHeader('Access-Control-Allow-Origin', origin);
@@ -277,6 +281,7 @@ router.use('/api/wellness/fitbit',        fitbitRoutes);
 router.use('/api/wellness/google-health', googleHealthRoutes);
 router.use('/api/wellness/withings',      withingsRoutes);
 router.use('/api/wellness/garmin',        garminRoutes);
+router.use('/api/wellness/apple-health',  appleHealthAppRoutes); // fork: iOS app push
 
 // Cross-source latest wellness metric lookup. Returns the most recent
 // row for a given metric_type across all sources (Fitbit / Withings /

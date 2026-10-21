@@ -1,0 +1,11 @@
+{
+  "name": "nutritrace-healthsync",
+  "version": "0.1.0",
+  "description": "Fork: Apple Health (HealthKit) reader for the NutriTrace iOS app",
+  "private": true,
+  "license": "AGPL-3.0",
+  "capacitor": {
+    "ios": { "src": "ios" }
+  },
+  "peerDependencies": { "@capacitor/core": ">=8" }
+}
