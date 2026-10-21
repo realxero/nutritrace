@@ -32,6 +32,7 @@
     z-index: 200;
     pointer-events: none;
     max-width: calc(100vw - 32px);
+    width: max-content; /* fork: with left:50% the auto width was capped at half the screen */
   }
   .toast {
     display: flex;
@@ -45,7 +46,9 @@
     font-size: 14px;
     font-weight: 500;
     color: var(--text-1);
-    white-space: nowrap;
+    white-space: normal; /* fork: long errors wrap instead of running off screen */
+    max-width: 100%;
+    box-sizing: border-box;
     backdrop-filter: var(--backdrop-blur);
     -webkit-backdrop-filter: var(--backdrop-blur);
   }
@@ -54,5 +57,5 @@
   .toast-icon { font-size: 18px; flex-shrink: 0; }
   .toast--success .toast-icon { color: var(--success); }
   .toast--error   .toast-icon { color: var(--danger); }
-  .toast-msg { flex: 1; }
+  .toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
 </style>

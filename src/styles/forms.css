@@ -132,3 +132,12 @@
   border-radius: 0;
   box-shadow: none;
 }
+
+/* Fork: a wide dropdown (long model names, "12-hour (AM/PM)") used to squeeze
+   the label beside it down to one letter per line ("M o d e l"). Labels keep
+   their width; the control takes what's left and truncates instead. The
+   extra class keeps this above each settings page's own scoped rules. */
+.settings-card .setting-row > .setting-label { flex: 1 0 auto; max-width: 50%; white-space: normal; }
+.settings-card .setting-row > div:first-child:not(:only-child) { min-width: 40%; }
+.settings-card .setting-row > select,
+.settings-card .setting-row > .select { flex: 0 1 auto; min-width: 0; max-width: 60%; text-overflow: ellipsis; }

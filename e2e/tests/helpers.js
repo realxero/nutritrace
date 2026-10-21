@@ -93,3 +93,45 @@ export async function gotoDiary(page) {
   await page.goto('/#/');
   await expect(page.locator('.meal-photo-btn').first()).toBeVisible({ timeout: 20_000 });
 }
+
+/**
+ * Text must fit its box: catches labels squashed to one letter per line
+ * ("M o d e l") and text spilling out of cards or pop-up messages. Unlike
+ * the overflow check, this includes fixed elements (toasts, sheets).
+ */
+export async function expectTextFits(page, label) {
+  const problems = await page.evaluate(() => {
+    const out = [];
+    const vw = window.innerWidth;
+    for (const el of document.querySelectorAll('body *')) {
+      const own = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
+      if (own.length < 4) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity === 0) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || r.bottom < 0 || r.top > window.innerHeight) continue;
+      if (el.closest('select, option, svg, [aria-hidden="true"], .material-symbols-rounded')) continue;
+      const fontPx = parseFloat(cs.fontSize) || 14;
+      const longestWord = Math.max(...own.split(/\s+/).map(w => w.length));
+      const name = `${el.tagName.toLowerCase()}.${[...el.classList].slice(0, 2).join('.')} "${own.slice(0, 30)}"`;
+      // squashed: narrower than ~2 characters while holding a real word
+      if (longestWord >= 4 && r.width < fontPx * 1.6) out.push(`squashed ${Math.round(r.width)}px: ${name}`);
+      // text wider than its own box (spills out, e.g. a no-wrap toast)
+      if (cs.display !== 'inline' && cs.overflowX === 'visible' && cs.whiteSpace.startsWith('nowrap') === false
+          && el.scrollWidth > el.clientWidth + 8 && el.clientWidth > 0) {
+        out.push(`spills out (${el.scrollWidth}px text in ${el.clientWidth}px box): ${name}`);
+      } else if (cs.whiteSpace.startsWith('nowrap') && cs.overflowX === 'visible' && cs.textOverflow !== 'ellipsis'
+          && el.scrollWidth > el.clientWidth + 8 && el.clientWidth > 0) {
+        out.push(`no-wrap text spills out (${el.scrollWidth}px in ${el.clientWidth}px): ${name}`);
+      }
+      // runs past the right edge of the screen
+      if (r.right > vw + 2 && cs.overflowX === 'visible') {
+        let p = el.parentElement, clipped = false;
+        while (p) { const o = getComputedStyle(p).overflowX; if (o !== 'visible') { clipped = true; break; } p = p.parentElement; }
+        if (!clipped) out.push(`off screen (right=${Math.round(r.right)}): ${name}`);
+      }
+    }
+    return out.slice(0, 10);
+  });
+  expect(problems, `${label}: text doesn't fit`).toEqual([]);
+}

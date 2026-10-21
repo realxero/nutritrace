@@ -32,28 +32,31 @@
   let appleHealthEnabledVal = DB.getSetting('appleHealthEnabled', false);
   const appleHealthEndpoint = (typeof location !== 'undefined' ? location.origin : '') + '/api/v1/apple-health';
   // Fork: iOS app reads HealthKit directly (no Shortcut needed).
-  let ahIOS = false, ahBusy = false, ahMsg = '', ahErr = false, ahLast = null;
-  import('../../lib/apple-health-native.js').then(m => { ahIOS = m.isIOSApp; ahLast = m.lastSyncAt(); }).catch(() => {});
+  let ahIOS = false, ahBusy = false, ahMsg = '', ahErr = false, ahLast = null, ahConnected = false;
+  let _ah = null;
+  import('../../lib/apple-health-native.js').then(m => {
+    _ah = m; ahIOS = m.isIOSApp; ahLast = m.lastSyncAt(); ahConnected = m.isConnected();
+  }).catch(() => {});
+  function _ahDone(r) {
+    ahLast = _ah.lastSyncAt(); ahConnected = _ah.isConnected();
+    ahMsg = `Synced the last ${_ah.SYNC_DAYS} days: ${r.days.length} with data, ${r.stored} values.`;
+  }
   async function ahConnect() {
     ahBusy = true; ahMsg = ''; ahErr = false;
-    try {
-      const m = await import('../../lib/apple-health-native.js');
-      await m.connectAppleHealth();
-      const r = await m.syncAppleHealth({ days: 14 });
-      ahLast = m.lastSyncAt();
-      ahMsg = `Synced ${r.days.length} day${r.days.length === 1 ? '' : 's'} (${r.stored} values).`;
-    } catch (e) { ahErr = true; ahMsg = e?.message || String(e); }
+    try { await _ah.connectAppleHealth(); _ahDone(await _ah.syncAppleHealth()); }
+    catch (e) { ahErr = true; ahMsg = e?.message || String(e); }
     finally { ahBusy = false; }
   }
   async function ahSyncNow() {
     ahBusy = true; ahMsg = ''; ahErr = false;
-    try {
-      const m = await import('../../lib/apple-health-native.js');
-      const r = await m.syncAppleHealth({ days: 7 });
-      ahLast = m.lastSyncAt();
-      ahMsg = `Synced ${r.days.length} day${r.days.length === 1 ? '' : 's'} (${r.stored} values).`;
-    } catch (e) { ahErr = true; ahMsg = e?.message || String(e); }
+    try { _ahDone(await _ah.syncAppleHealth()); }
+    catch (e) { ahErr = true; ahMsg = e?.message || String(e); }
     finally { ahBusy = false; }
+  }
+  function ahDisconnect() {
+    _ah.disconnectAppleHealth();
+    ahConnected = false; ahLast = null; ahErr = false;
+    ahMsg = 'Stopped syncing. To remove access completely: iPhone Settings → Health → Data Access & Devices → NutriTrace. Data already synced stays on your server.';
   }
   let workoutsEnabledVal     = DB.getSetting('workoutsEnabled',     false);
   let lifttraceOverlapFillVal = DB.getSetting('lifttraceOverlapFill', true);
@@ -1431,12 +1434,19 @@
           <div class="setting-divider"></div>
           <div class="setting-row" style="display:block" data-testid="apple-health-ios">
             <span class="setting-label">This iPhone</span>
-            <div class="setting-desc">The app reads Apple Health directly and syncs when you open it. No Shortcut needed.
-              {#if ahLast}<br>Last synced {ahLast.toLocaleString()}.{/if}</div>
-            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-              <button class="btn btn-primary btn-sm" disabled={ahBusy} on:click={ahConnect}>{ahBusy ? 'Working…' : 'Connect Apple Health'}</button>
-              <button class="btn btn-secondary btn-sm" disabled={ahBusy} on:click={ahSyncNow}>Sync now</button>
-            </div>
+            {#if ahConnected}
+              <div class="setting-desc" style="color:var(--accent);font-weight:600;margin-top:2px">✓ Connected to Apple Health</div>
+              <div class="setting-desc">Syncs automatically when you open the app.{#if ahLast} Last synced {ahLast.toLocaleString()}.{/if}</div>
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn btn-primary btn-sm" disabled={ahBusy} on:click={ahSyncNow}>{ahBusy ? 'Syncing…' : 'Sync now'}</button>
+                <button class="btn btn-secondary btn-sm" disabled={ahBusy} on:click={ahDisconnect}>Disconnect</button>
+              </div>
+            {:else}
+              <div class="setting-desc">Read Apple Health directly from this iPhone. No Shortcut needed.</div>
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn btn-primary btn-sm" disabled={ahBusy} on:click={ahConnect}>{ahBusy ? 'Connecting…' : 'Connect Apple Health'}</button>
+              </div>
+            {/if}
             {#if ahMsg}<div class="setting-desc" style="margin-top:6px;color:{ahErr ? '#ef4444' : 'var(--accent)'}">{ahMsg}</div>{/if}
           </div>
         {/if}

@@ -14,6 +14,17 @@ export const isIOSApp = isNative && Capacitor.getPlatform() === 'ios';
 const HealthSync = isIOSApp ? registerPlugin('HealthSync') : null;
 
 const LAST_KEY = 'nt:appleHealthLastSync';
+const CONNECTED_KEY = 'nt:appleHealthConnected';
+export const SYNC_DAYS = 14;
+
+/** iOS never tells apps whether read access was granted (privacy), so
+ *  "connected" means: the user tapped Connect here and a sync worked. */
+export function isConnected() {
+  try { return localStorage.getItem(CONNECTED_KEY) === '1'; } catch { return false; }
+}
+export function disconnectAppleHealth() {
+  try { localStorage.removeItem(CONNECTED_KEY); localStorage.removeItem(LAST_KEY); } catch {}
+}
 const MIN_GAP_MS = 15 * 60 * 1000;
 
 export function lastSyncAt() {
@@ -43,7 +54,7 @@ export async function connectAppleHealth() {
  * Read the last `days` days and send them to the server.
  * Returns { stored, days } or throws.
  */
-export async function syncAppleHealth({ days = 7 } = {}) {
+export async function syncAppleHealth({ days = SYNC_DAYS } = {}) {
   if (!HealthSync) throw new Error('Apple Health is only available in the iOS app.');
   if (getNativeMode() !== 'server' || !getServerUrl()) {
     throw new Error('Connect the app to your NutriTrace server first (Settings → Sync).');
@@ -61,7 +72,7 @@ export async function syncAppleHealth({ days = 7 } = {}) {
   });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `Server error ${r.status}`);
-  try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch {}
+  try { localStorage.setItem(LAST_KEY, new Date().toISOString()); localStorage.setItem(CONNECTED_KEY, '1'); } catch {}
   try { window.dispatchEvent(new CustomEvent('nt:apple-health-synced', { detail: body })); } catch {}
   return { stored: body.stored || 0, days: body.days || [] };
 }
@@ -69,11 +80,11 @@ export async function syncAppleHealth({ days = 7 } = {}) {
 let _syncing = false;
 /** Quiet background sync: skips if recent, never shows errors. */
 export async function maybeSyncAppleHealth(enabled) {
-  if (!HealthSync || !enabled || _syncing) return;
+  if (!HealthSync || !enabled || _syncing || !isConnected()) return;
   const last = lastSyncAt();
   if (last && Date.now() - last.getTime() < MIN_GAP_MS) return;
   _syncing = true;
-  try { await syncAppleHealth({ days: last ? 3 : 14 }); }
+  try { await syncAppleHealth({ days: last ? 3 : SYNC_DAYS }); }
   catch (e) { console.warn('[apple-health] background sync skipped:', e?.message || e); }
   finally { _syncing = false; }
 }
