@@ -32,6 +32,8 @@ export const SCOPE_DESCRIPTIONS = {
   'read:foods':      "Read the token owner's foods library. Used by CookTrace federation.",
   'write:workouts':  "Post workouts into the token owner's wellness history. Used by LiftTrace federation.",
   'write:activity':  "Log manual activity entries into the diary Activity section. Used by external trackers and headless integrations (issue #154).",
+  'write:body-measurements': 'Post smart-scale readings from Home Assistant / Node-RED / Gadgetbridge into Body Stats and Wellness.',
+  'write:apple-health': 'Push Apple Health data from an iPhone (Health Auto Export or Shortcuts) into Wellness.',
   'mcp:read':        'MCP: read the diary, goals, daily totals, daily steps, body composition, profile (gender, date of birth), and the foods and meals catalog. Also unlocks the equivalent /api/v1 read routes when PUBLIC_API_ENABLED=1.',
   'mcp:write':       'MCP: log food / water / meals / body stats (4 additive tools). Requires MCP_WRITE_ENABLED=1 on the server. Also unlocks the equivalent /api/v1 write routes when PUBLIC_API_WRITE_ENABLED=1.',
   'mcp:destroy':     'MCP: delete or edit diary entries, create catalog foods (3 tools). Requires MCP_DESTROY_ENABLED=1 AND every call to include confirm=true.',
@@ -56,6 +58,9 @@ export const KNOWN_SCOPES = new Set([
   // integrations pushing smart-scale readings straight to the server
   // (BLE → HA → NT), skipping the phone/Health-Connect roundtrip.
   'write:body-measurements',
+  // Fork: write:apple-health unlocks POST /api/v1/apple-health — iPhone
+  // pushes (Health Auto Export / Shortcuts) into wellness_data.
+  'write:apple-health',
   // mcp:read unlocks the Model Context Protocol read tools (issue #103)
   // exposed under /api/mcp when MCP_ENABLED=1. Read-only in Phase 1;
   // future mcp:write scope will be added alongside the write tools.

@@ -8,7 +8,7 @@
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
   import {
-    wellnessEnabled, fitbitEnabled, healthConnectEnabled, wellnessMetrics, workoutsEnabled, mirrorWellnessWeight,
+    wellnessEnabled, fitbitEnabled, healthConnectEnabled, appleHealthEnabled, wellnessMetrics, workoutsEnabled, mirrorWellnessWeight,
     lifttraceOverlapFill, envLocks,
     wellnessSyncRange,
     fitbitSyncMode, fitbitSyncInterval, fitbitSyncWindowStart, fitbitSyncWindowEnd,
@@ -29,6 +29,8 @@
   let fitbitEnabledVal     = DB.getSetting('fitbitEnabled',     false);
   let withingsEnabledVal   = DB.getSetting('withingsEnabled',   false);
   let healthConnectEnabledVal = DB.getSetting('healthConnectEnabled', false);
+  let appleHealthEnabledVal = DB.getSetting('appleHealthEnabled', false);
+  const appleHealthEndpoint = (typeof location !== 'undefined' ? location.origin : '') + '/api/v1/apple-health';
   let workoutsEnabledVal     = DB.getSetting('workoutsEnabled',     false);
   let lifttraceOverlapFillVal = DB.getSetting('lifttraceOverlapFill', true);
   // #200: opt-in mirror from wellness weight readings → diary Body Stats weight.
@@ -1360,6 +1362,37 @@
       </div>
     {/if}
 
+    <!-- Fork: Apple Health (iPhone push). HealthKit has no web API, so the
+         phone sends data here via Health Auto Export or Apple Shortcuts. -->
+    {#if !isNativeLocal}
+      <p class="sub-label" style="padding-top:16px">Apple Health</p>
+      <div class="card settings-card">
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Enable Apple Health</span>
+            <div class="setting-desc">Show data your iPhone pushes to this server in Wellness.</div>
+          </div>
+          <Toggle checked={appleHealthEnabledVal} on:change={e => {
+            appleHealthEnabledVal = e.detail;
+            appleHealthEnabled.set(e.detail);
+          }} />
+        </div>
+        {#if appleHealthEnabledVal}
+          <div class="setting-divider"></div>
+          <div class="setting-row" style="display:block">
+            <span class="setting-label">Endpoint</span>
+            <div class="setting-desc" style="user-select:all;word-break:break-all;font-family:monospace">{appleHealthEndpoint}</div>
+            <div class="setting-desc" style="margin-top:8px">
+              1. Settings → API tokens → create a token with the <code>write:apple-health</code> scope.<br>
+              2. In Health Auto Export on your iPhone: Automations → REST API → URL above, format JSON,
+              header <code>Authorization: Bearer &lt;token&gt;</code>, Aggregate Data on, period Days, sync cadence as often as you like.<br>
+              Or use an Apple Shortcuts automation that POSTs <code>{'{'}"date":"YYYY-MM-DD","metrics":{'{'}"steps":1234{'}'}{'}'}</code>.
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- LiftTrace cross-source workout reconciliation. Renders only when
          BOTH a wearable that reports daily calorie totals is enabled AND
          a LiftTrace API token is active for this user (lifttrace_connected
@@ -1369,7 +1402,7 @@
          would just be UI noise. Lives in its own sub-section at the
          bottom of the wellness group so the placement reads as
          cross-cutting rather than nested under any one wearable. -->
-    {#if (fitbitEnabledVal || garminEnabledVal || withingsEnabledVal || healthConnectEnabledVal) && $envLocks?.lifttrace_connected}
+    {#if (fitbitEnabledVal || garminEnabledVal || withingsEnabledVal || healthConnectEnabledVal || appleHealthEnabledVal) && $envLocks?.lifttrace_connected}
       <p class="sub-label" style="padding-top:16px">{$_('settings_wellness.lifttrace.title')}</p>
       <div class="card settings-card">
         <div class="setting-row">

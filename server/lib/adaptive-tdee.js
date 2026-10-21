@@ -126,7 +126,7 @@ export function computeAdaptiveTdee(userId, opts = {}) {
      ORDER BY date ASC`
   ).all(userId, startDate, endDate);
 
-  const WELLNESS_PRIORITY = ['withings', 'fitbit', 'garmin', 'health_connect'];
+  const WELLNESS_PRIORITY = ['withings', 'fitbit', 'garmin', 'health_connect', 'apple_health'];
   const wellnessByDate = new Map(); // date → { value, source }
   for (const r of wellRows) {
     const existing = wellnessByDate.get(r.date);

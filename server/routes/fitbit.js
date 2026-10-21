@@ -678,17 +678,17 @@ router.get('/data', wrap((req, res) => {
   // Wellness → Body alongside Fitbit + Health Connect data. Health
   // Connect stays last in the ordering so its values win on any tie
   // (same metric on same day from multiple sources).
-  const orderHcLast = `ORDER BY CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`;
+  const orderHcLast = `ORDER BY CASE source WHEN 'health_connect' THEN 2 WHEN 'apple_health' THEN 3 ELSE 1 END`;
   let rows;
   if (date) {
     rows = db.prepare(
-      `SELECT * FROM wellness_data WHERE user_id=? AND date=? AND source IN ('fitbit', 'health_connect', 'federation') ${orderHcLast}`
+      `SELECT * FROM wellness_data WHERE user_id=? AND date=? AND source IN ('fitbit', 'health_connect', 'federation', 'apple_health') ${orderHcLast}`
     ).all(u, date);
   } else {
     const start = from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const end   = to   || new Date().toISOString().slice(0, 10);
     rows = db.prepare(
-      `SELECT * FROM wellness_data WHERE user_id=? AND date>=? AND date<=? AND source IN ('fitbit', 'health_connect', 'federation') ORDER BY date, CASE source WHEN 'health_connect' THEN 2 ELSE 1 END`
+      `SELECT * FROM wellness_data WHERE user_id=? AND date>=? AND date<=? AND source IN ('fitbit', 'health_connect', 'federation', 'apple_health') ORDER BY date, CASE source WHEN 'health_connect' THEN 2 WHEN 'apple_health' THEN 3 ELSE 1 END`
     ).all(u, start, end);
   }
 

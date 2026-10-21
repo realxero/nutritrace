@@ -57,7 +57,7 @@ export const USER_PREFS = new Set([
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
-  'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','appleHealthEnabled','wellnessMetrics','workoutsEnabled',
   'mirrorWellnessWeight',
   'lifttraceOverlapFill',
   'wellnessSyncRange',
@@ -847,6 +847,8 @@ export const wellnessEnabled    = createSettingStore('wellnessEnabled',    false
 export const fitbitEnabled      = createSettingStore('fitbitEnabled',      false);
 export const googleHealthEnabled = createSettingStore('googleHealthEnabled', false);
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
+// Fork: Apple Health via iPhone push (Health Auto Export / Shortcuts) → /api/v1/apple-health.
+export const appleHealthEnabled = createSettingStore('appleHealthEnabled', false);
 export const wellnessMetrics    = createSettingStore('wellnessMetrics',    null); // null = all visible
 export const workoutsEnabled   = createSettingStore('workoutsEnabled',   false); // show workout history + GPS maps in Movement tab
 // #200: opt-in mirror from Wellness → Body Stats. When true, any weight
@@ -915,12 +917,12 @@ export const garminSyncWindowEnd    = createSettingStore('garminSyncWindowEnd', 
 // Use for "is any wellness source connected at all" questions (Wellness
 // link visibility, "has wearable" gates that drive feature toggles, etc.).
 export const fitbitFamilyEnabled = derived(
-  [fitbitEnabled, googleHealthEnabled, healthConnectEnabled],
-  ([$fitbit, $gh, $hc]) => $fitbit || $gh || $hc
+  [fitbitEnabled, googleHealthEnabled, healthConnectEnabled, appleHealthEnabled],
+  ([$fitbit, $gh, $hc, $ah]) => $fitbit || $gh || $hc || $ah
 );
 export const anyWellnessSourceEnabled = derived(
-  [fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled],
-  ([$fitbit, $garmin, $withings, $gh, $hc]) => $fitbit || $garmin || $withings || $gh || $hc
+  [fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled, appleHealthEnabled],
+  ([$fitbit, $garmin, $withings, $gh, $hc, $ah]) => $fitbit || $garmin || $withings || $gh || $hc || $ah
 );
 
 export const healthConnectSyncMode         = createSettingStore('healthConnectSyncMode',         null);

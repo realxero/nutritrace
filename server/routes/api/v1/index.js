@@ -16,6 +16,7 @@ import mealsRouter from './meals.js';
 import stepsRouter from './steps.js';
 import bodyCompositionRouter from './body-composition.js';
 import profileRouter from './profile.js';
+import appleHealthRouter from './apple-health.js';
 
 const router = Router();
 
@@ -28,6 +29,8 @@ router.use('/foods', foodsRouter);
 router.use('/workouts', workoutsRouter);
 router.use('/activity', activityRouter);
 router.use('/body-measurements', bodyMeasurementsRouter);
+// Fork: Apple Health push ingest (Health Auto Export / Shortcuts).
+router.use('/apple-health', appleHealthRouter);
 // diary/goals/meals/steps/profile are the general-purpose public API (a
 // user's own scripts and automations), not a sister-app federation
 // contract like the routers above. Each self-gates behind

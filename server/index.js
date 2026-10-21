@@ -100,6 +100,7 @@ router.use(requestLogging);
 // is already populated and it short-circuits.
 router.use('/api/data/import', express.json({ limit: '25mb' }));
 router.use('/api/sync/push',   express.json({ limit: '25mb' }));
+router.use('/api/v1/apple-health', express.json({ limit: '25mb' }));
 // Trace AI chat carries base64'd meal photos (phone camera shots inflate to
 // ~3-7 MB after base64), so its body needs more headroom than the global cap.
 router.use('/api/ai/chat',     express.json({ limit: '12mb' }));
@@ -322,8 +323,8 @@ router.get('/api/wellness/calories-out', (req, res) => {
   // wearable misses lifting sessions and you trust LT's estimate more).
   const overlapFill = _readBoolSetting(userId, 'lifttraceOverlapFill', true);
   const PRIORITY = overlapFill
-    ? ['garmin', 'health_connect', 'fitbit', 'lifttrace']
-    : ['lifttrace', 'garmin', 'health_connect', 'fitbit'];
+    ? ['garmin', 'health_connect', 'apple_health', 'fitbit', 'lifttrace']
+    : ['lifttrace', 'garmin', 'health_connect', 'apple_health', 'fitbit'];
   const rows = db.prepare(
     `SELECT source, value FROM wellness_data
      WHERE user_id=? AND date=? AND metric_type='calories_out'`
