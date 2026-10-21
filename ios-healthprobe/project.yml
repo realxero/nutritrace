@@ -1,0 +1,33 @@
+# XcodeGen spec — the Xcode project is generated on the build Mac, so no
+# .xcodeproj lives in git. See .github/workflows/ios-healthprobe.yml.
+name: HealthProbe
+options:
+  bundleIdPrefix: io.github.nutritracefork
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  HealthProbe:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: HealthProbe
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSHealthShareUsageDescription: "HealthProbe reads your activity, heart, sleep and body data from Apple Health so it can send it to your NutriTrace server."
+    entitlements:
+      path: HealthProbe.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.nutritracefork.healthprobe
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
