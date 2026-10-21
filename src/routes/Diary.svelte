@@ -20,6 +20,8 @@
   import WeekStrip           from '../components/diary/WeekStrip.svelte';
   import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
   import QuickCaloriesSheet from '../components/diary/QuickCaloriesSheet.svelte';
+  import PhotoLogButton from '../components/diary/PhotoLogButton.svelte';
+  import { aiEffectivelyEnabled } from '../stores/settings.js';
   import FastingWidget from '../components/diary/FastingWidget.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
   import Sheet        from '../components/ui/Sheet.svelte';
@@ -2160,6 +2162,9 @@
           <button class="btn-icon ml-auto meal-menu-btn" on:click={() => openMealActionSheet(mealIdx)} aria-label="Meal actions for {meal}" title="Meal actions">
             <span class="material-symbols-rounded">more_vert</span>
           </button>
+          {#if $aiEffectivelyEnabled}
+            <PhotoLogButton {mealIdx} mealName={meal} date={$currentDate} />
+          {/if}
           {#if $showQuickCalories}
             <button class="btn-icon meal-quick-btn" on:click={() => openQuickCalories(mealIdx)} aria-label="Quick calories for {meal}" title="Quick Calories">
               <span class="material-symbols-rounded">bolt</span>

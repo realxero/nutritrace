@@ -1071,12 +1071,32 @@
   // check it before running the parser.
   let _commitNextTranscript = false;
 
+  // Fork: visible voice feedback. liveTranscript shows the words as they're
+  // heard; voiceStage = 'processing' shows a working bubble after release
+  // until the Smart Log review sheet opens.
+  let liveTranscript = '';
+  let voiceStage = '';
+  let _voiceHandled = false;   // one transcript → one Smart Log run
+  let _nativePartialHandle = null;
+
+  async function _finishVoice(text) {
+    if (_voiceHandled) return;
+    _voiceHandled = true;
+    if (!_commitNextTranscript) return;
+    const t = (text || '').trim();
+    if (!t) { showError("Didn't catch that — try again"); return; }
+    await _processTranscript(t);
+  }
+
   async function _startRecording() {
     if (!$quickLogEnabled) return;
     recordingMode = true;
     cancelPreview = false;
     recordingStartedAt = Date.now();
     _commitNextTranscript = true;
+    liveTranscript = '';
+    voiceStage = '';
+    _voiceHandled = false;
     _hapticBuzz('medium');
     _beep(1000, 80); // start beep — high tone
     if (isNative) {
@@ -1094,22 +1114,22 @@
         // Note: native plugin's start() is blocking until the user stops
         // speaking OR we call stop(). We don't await it here — we kick it off
         // and let the pointerup handler stop it and process the result.
+        try { await _nativePartialHandle?.remove?.(); } catch {}
+        _nativePartialHandle = await SpeechRecognition.addListener('partialResults', (data) => {
+          const m = data?.matches?.[0];
+          if (m) liveTranscript = m;
+        });
         SpeechRecognition.start({
           language: _resolveVoiceLang(),
           maxResults: 1,
-          partialResults: false,
+          partialResults: true,
           popup: false,
           prompt: 'Tell me what you ate',
         }).then(async (result) => {
-          // Result returns when stop() is called OR speech ends naturally.
-          // Skip processing if the user cancelled by sliding off the FAB.
-          if (!_commitNextTranscript) return;
+          // With partialResults on, iOS resolves early with no matches; the
+          // words arrive through the listener and _stopRecording finishes.
           const transcript = (result?.matches && result.matches[0]) || '';
-          if (transcript) {
-            await _processTranscript(transcript);
-          } else {
-            showError("Didn't catch that — try again");
-          }
+          if (transcript && !recordingMode) await _finishVoice(transcript);
         }).catch((e) => {
           console.warn('[trace-hold] native voice failed:', e?.message);
           showError('Voice recognition failed: ' + (e?.message || 'unknown error'));
@@ -1129,30 +1149,22 @@
       }
       try {
         const rec = new SR();
-        rec.continuous = false;
-        rec.interimResults = false;
+        rec.continuous = true;      // keep listening while the button is held
+        rec.interimResults = true;  // words appear as they're heard
         rec.lang = _resolveVoiceLang();
-        rec.onresult = async (e) => {
-          if (!_commitNextTranscript) return;
-          const transcript = e.results[0]?.[0]?.transcript || '';
-          if (transcript) {
-            await _processTranscript(transcript);
-          } else {
-            showError("Didn't catch that — try again");
-          }
+        rec.onresult = (e) => {
+          let text = '';
+          for (let i = 0; i < e.results.length; i++) text += e.results[i][0]?.transcript || '';
+          liveTranscript = text.trim();
         };
         rec.onerror = (e) => {
           console.warn('[trace-hold] web voice error:', e.error);
           if (_commitNextTranscript) showError('Voice error: ' + (e.error || 'unknown'));
         };
         rec.onend = () => {
-          // Fired even on success — but if we never got a result and
-          // commit was expected, surface the silent failure.
-          if (_commitNextTranscript && !recordingMode) {
-            // recordingMode is already false at this point if user released;
-            // a separate flag would be needed to detect "no result fired"
-            // — leaving this as a hook for future refinement.
-          }
+          // Fires after release (stop) — or early if the browser gives up.
+          // Either way, run Smart Log once on whatever was heard.
+          if (!recordingMode) _finishVoice(liveTranscript);
         };
         window.__traceHoldRec = rec;
         rec.start();
@@ -1181,6 +1193,10 @@
         const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
         await SpeechRecognition.stop();
       } catch {}
+      try { await _nativePartialHandle?.remove?.(); } catch {}
+      _nativePartialHandle = null;
+      if (commit) setTimeout(() => _finishVoice(liveTranscript), 250); // let the last partial land
+      else _voiceHandled = true;
     } else if (window.__traceHoldRec) {
       try { commit ? window.__traceHoldRec.stop() : window.__traceHoldRec.abort(); } catch {}
       window.__traceHoldRec = null;
@@ -1193,6 +1209,7 @@
       return;
     }
     smartLogText = text;
+    voiceStage = 'processing';
     try {
       const { parseInput, matchItems } = await import('../../lib/quick-log.js');
       const userMealNames = (await import('../../stores/settings.js')).mealNames;
@@ -1211,6 +1228,9 @@
     } catch (e) {
       console.error('[trace-hold] parse failed:', e);
       showError('Smart Log parse failed: ' + (e.message || 'unknown error'));
+    } finally {
+      voiceStage = '';
+      liveTranscript = '';
     }
   }
 
@@ -2111,16 +2131,21 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
        Uses transform: translateX(-50%) so the pill stays centered on the FAB
        regardless of how wide the text inside is. Position is based on the
        FAB's center x-coordinate (FAB width = 60px → center = pos.x + 30). -->
-  {#if recordingMode}
+  {#if recordingMode || voiceStage === 'processing'}
     <div
       class="fab-record-hint"
-      class:cancel={cancelPreview}
-      style={fabPos ? `left:${fabPos.x + 30}px; top:${fabPos.y - 44}px; right:auto; transform:translateX(-50%);` : ''}
+      class:cancel={cancelPreview && recordingMode}
+      class:has-words={!!liveTranscript || voiceStage === 'processing'}
+      style={fabPos ? `left:${Math.min(Math.max(fabPos.x + 30, 150), (typeof window !== 'undefined' ? window.innerWidth : 400) - 150)}px; top:${fabPos.y - 12}px; right:auto; transform:translate(-50%, -100%);` : ''}
     >
-      {#if cancelPreview}
+      {#if recordingMode && cancelPreview}
         ✕ Release to cancel
+      {:else if recordingMode}
+        <div class="hint-head"><span class="hint-dot"></span> Listening… release to log</div>
+        {#if liveTranscript}<div class="hint-words">“{liveTranscript}”</div>{/if}
       {:else}
-        ● Listening… release to log
+        <div class="hint-head"><span class="hint-spin"></span> Finding foods…</div>
+        {#if liveTranscript || smartLogText}<div class="hint-words">“{liveTranscript || smartLogText}”</div>{/if}
       {/if}
     </div>
   {/if}
@@ -2482,6 +2507,13 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   /* Recording state — robot face morphs to mic icon. The FAB turns RED
      (universal "recording" color), gets a strong heartbeat ring, and
      scales up 8% so the user has unambiguous "live" feedback. */
+  .fab-record-hint.has-words { max-width: min(300px, calc(100vw - 24px)); white-space: normal; text-align: left; right: 12px; transform: none; }
+  .hint-head { display: flex; align-items: center; gap: 6px; }
+  .hint-words { margin-top: 4px; font-weight: 500; font-size: 1.02em; line-height: 1.3; }
+  .hint-dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: hint-blink 1s ease-in-out infinite; flex: none; }
+  .hint-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: hint-rot .8s linear infinite; flex: none; }
+  @keyframes hint-blink { 50% { opacity: .25; } }
+  @keyframes hint-rot { to { transform: rotate(360deg); } }
   .ai-fab.recording {
     transform: scale(1.08);
     background: linear-gradient(135deg, #ef4444, #b91c1c, #ef4444, #dc2626, #ef4444);
