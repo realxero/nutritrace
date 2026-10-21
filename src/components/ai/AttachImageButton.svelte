@@ -50,8 +50,15 @@
         emit([new File([blob], `pasted.${type.split('/')[1] || 'png'}`, { type })]);
         return;
       }
+      // No image data: Safari images are often copied as their link.
+      const text = (await navigator.clipboard.readText?.().catch(() => '') || '').trim();
+      if (/^https?:\/\/\S+$/i.test(text)) { dispatch('pasteUrl', text); return; }
       dispatch('pasteEmpty');
     } catch {
+      try {
+        const text = (await navigator.clipboard.readText?.() || '').trim();
+        if (/^https?:\/\/\S+$/i.test(text)) { dispatch('pasteUrl', text); return; }
+      } catch {}
       dispatch('pasteEmpty');
     }
   }

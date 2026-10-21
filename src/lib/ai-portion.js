@@ -17,6 +17,23 @@ import { Nutrition } from './nutrition.js';
 // and returns kcal computed from the item that is actually saved.
 const _AI_MAX_KCAL_PER_G = 9.5;  // pure fat is ~9; nothing real is denser
 export function buildAiDiaryItem(food, portionOverride, unitOverride, quantity, opts = {}) {
+  // Fork: a per-100 entry with calories the user showed (expected_kcal) but
+  // no amount: work the amount out from those calories instead of refusing.
+  // Small models tend to retry the same call rather than fix it, which left
+  // the chat stuck. 150 kcal on a bottle of a 27 kcal/100 ml tea → 556 ml.
+  {
+    const p0 = parseFloat(food.portion) > 0 ? parseFloat(food.portion) : 100;
+    const u0 = food.unit || 'g';
+    const per = Number(food.nutrition?.calories);
+    const want = Number(opts.expectedKcal);
+    if (portionOverride == null && opts.perHundredNeedsPortion && p0 === 100 && /^(g|ml)$/i.test(u0)
+        && per > 0 && want > 0) {
+      const amount = Math.round((want / per) * p0);
+      const r = buildAiDiaryItem(food, amount, u0, quantity, { ...opts, perHundredNeedsPortion: false });
+      if (!r.error) r.warnings = [...(r.warnings || []), `No amount was given, so it was worked out from the ${Math.round(want)} kcal shown: about ${amount} ${u0}. Tell the user so they can adjust it.`];
+      return r;
+    }
+  }
   const origPortion = parseFloat(food.portion) > 0 ? parseFloat(food.portion) : 100;
   const origUnit    = food.unit || 'g';
   // Fork: a database entry stored per 100 g/ml (Open Food Facts) logged with
@@ -71,7 +88,8 @@ export function buildAiDiaryItem(food, portionOverride, unitOverride, quantity, 
   // Fork: cross-check against calories the user showed or said.
   const expected = Number(opts.expectedKcal);
   if (expected > 0 && kcal > 0 && Math.abs(kcal - expected) / expected > 0.2) {
-    return { error: `This would log ${kcal} kcal, but the user's photo or message says about ${Math.round(expected)} kcal. Nothing was logged. Pass portion/unit so the amount matches (e.g. the full bottle), or if the database values are wrong, use propose_food with the numbers from the label.` };
+    const fix = kcal > 0 ? Math.round(newPortion * expected / kcal) : null;
+    return { error: `This would log ${kcal} kcal, but the user's photo or message says about ${Math.round(expected)} kcal. Nothing was logged. Call log_food once more with portion ${fix ?? '(the real amount)'} and unit "${newUnit}" to match, or if the database values are wrong, use propose_food with the label's numbers. Do not repeat the same call.` };
   }
   return { item, kcal, factor, warnings };
 }

@@ -130,3 +130,42 @@ test('pasting an image into the chat box attaches it', async ({ page }) => {
   await expect(page.locator('img[alt="Attached"]')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('pasting an image LINK (how iPhone pastes Safari images) attaches the image', async ({ page }) => {
+  await page.route('**/api/fetch-image**', r => r.fulfill({ json: {
+    mimeType: 'image/png',
+    base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' } }));
+  await gotoDiary(page);
+  await page.locator('.ai-fab').click();
+  await page.locator('.ai-textarea').evaluate((el) => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'https://images.example.com/tea-bottle.jpg');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('img[alt="Attached"]')).toBeVisible();
+  await expect(page.locator('.ai-textarea')).toHaveValue('');
+});
+
+test('a failed AI request shows a message IN the chat, not a hidden toast', async ({ page }) => {
+  await page.route('**/api/ai/chat', r => r.fulfill({ status: 500, json: { error: 'Too many tool call rounds' } }));
+  await gotoDiary(page);
+  await page.locator('.ai-fab').click();
+  await page.locator('.ai-textarea').fill('log this in yesterdays dinner');
+  await page.locator('.ai-send-btn').click();
+  await expect(page.getByText(/I got stuck trying to log that|Something went wrong/).first()).toBeVisible();
+});
+
+test('fetch-image route: login required, junk and home-network links refused', async ({ request, playwright, baseURL }) => {
+  // Same rule as every private route: with user accounts on, no login → 401.
+  // (In single-user mode the whole app is open to its one owner.)
+  const anon = await playwright.request.newContext({ baseURL });
+  const privateRoute = (await anon.get('/api/settings')).status();
+  const ours = (await anon.get('/api/fetch-image?url=not-a-link')).status();
+  if (privateRoute === 401) expect(ours).toBe(401);       // accounts on: login required
+  else expect(ours).toBe(400);                            // single-user: open, still validated
+  await anon.dispose();
+  expect((await request.get('/api/fetch-image?url=not-a-link')).status()).toBe(400);
+  const internal = await request.get('/api/fetch-image?url=' + encodeURIComponent('http://127.0.0.1:3199/api/health'));
+  expect(internal.ok()).toBe(false);
+  expect((await internal.json()).error).toBeTruthy();
+});

@@ -13,6 +13,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 import proxyRoutes  from './routes/proxy.js';
+import fetchImageRoutes from './routes/fetch-image.js'; // fork: pasted image links
 import authRoutes   from './routes/auth.js';
 import dataRoutes   from './routes/data.js';
 import foodsRoutes  from './routes/foods.js';
@@ -282,6 +283,7 @@ router.use('/api/wellness/google-health', googleHealthRoutes);
 router.use('/api/wellness/withings',      withingsRoutes);
 router.use('/api/wellness/garmin',        garminRoutes);
 router.use('/api/wellness/apple-health',  appleHealthAppRoutes); // fork: iOS app push
+router.use('/api/fetch-image', fetchImageRoutes); // fork: pasted image links (logged-in, SSRF-guarded)
 
 // Cross-source latest wellness metric lookup. Returns the most recent
 // row for a given metric_type across all sources (Fitbit / Withings /

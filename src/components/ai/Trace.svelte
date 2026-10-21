@@ -1832,6 +1832,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       const systemPrompt = buildSystemPrompt(ctx);
       // Build API messages — include image in the last user message if present
       const apiMessages  = messages
+        .filter(m => !m._local)   // fork: on-screen notices aren't conversation
         .map(m => ({ role: m.role, content: m.content }))
         .slice(-20);
       // If image attached, modify the last user message to include it.
@@ -1877,13 +1878,20 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       const reply = aiEnvLocked
         ? await callAIProxy({ messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall })
         : await callAI({ provider, apiKey: key, model, baseUrl, messages: apiMessages, systemPrompt, tools: toolsForRound, onToolCall });
-      messages = [...messages, { role: 'assistant', content: reply, time: fmtTime() }];
+      // Fork: never leave the chat silent. An empty answer gets a visible note.
+      const shown = String(reply || '').trim() ? reply
+        : "I couldn't finish that one. Try again with the amount and calories, e.g. \"log 1 bottle (547 ml) of Pure Leaf lemon tea, 150 calories\".";
+      messages = [...messages, { role: 'assistant', content: shown, time: fmtTime() }];
       if (_speakNextReply) { _speakNextReply = false; speak(reply); }
       // Persist assistant reply to server (best-effort)
       NtApi.post('/api/ai/history', { role: 'assistant', content: reply }).catch(() => {});
       if (!panelOpen) hasUnread = true;
     } catch (e) {
-      showError(e.message || 'AI request failed');
+      // Fork: errors used to show only as a toast hidden behind the chat.
+      const msg = /too many tool call rounds/i.test(e?.message || '')
+        ? "I got stuck trying to log that. The database entry didn't match what you showed me. Tell me the amount and calories (e.g. \"1 bottle, 547 ml, 150 calories\") and I'll log it exactly."
+        : `Something went wrong: ${e?.message || 'AI request failed'}`;
+      _chatNotice(msg);
     } finally {
       loading = false;
       _toolStatus = '';
@@ -1925,6 +1933,9 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   }
 
   function _removeImage() { attachedImage = null; }
+  function _chatNotice(text) {
+    messages = [...messages, { role: 'assistant', content: `⚠️ ${text}`, time: fmtTime(), _local: true }];
+  }
 
   // Fork: paste an image straight into the chat box (long-press → Paste on
   // iPhone, Ctrl/Cmd+V on a computer). Text pastes behave as before.
@@ -1935,9 +1946,36 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       const f = item?.getAsFile();
       if (f) files.push(f);
     }
-    if (!files.length) return;
-    e.preventDefault();
-    _useImageFiles(files);
+    if (files.length) { e.preventDefault(); _useImageFiles(files); return; }
+    // iPhone often pastes an image copied in Safari as its link. If the whole
+    // paste is one web link, try to load it as an image.
+    const text = (e.clipboardData?.getData('text/uri-list') || e.clipboardData?.getData('text/plain') || '').trim();
+    if (/^https?:\/\/\S+$/i.test(text) && !input.trim()) {
+      e.preventDefault();
+      attachImageFromUrl(text);
+    }
+  }
+
+  let _fetchingPasted = false;
+  export async function attachImageFromUrl(url) {
+    if (_fetchingPasted) return;
+    _fetchingPasted = true;
+    try {
+      const headers = {};
+      const { getAuthToken, apiUrl } = await import('../../lib/platform.js');
+      const t = getAuthToken?.();
+      if (t) headers.Authorization = `Bearer ${t}`;
+      const r = await fetch(apiUrl('/api/fetch-image?url=' + encodeURIComponent(url)), { headers, credentials: 'include' });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok || !body.base64) throw new Error(body.error || 'Could not load that image');
+      attachedImage = { base64: body.base64, mimeType: body.mimeType, preview: `data:${body.mimeType};base64,${body.base64}` };
+    } catch (err) {
+      // Not an image (or blocked): keep the link as text instead.
+      input = url;
+      showError(`Pasted the link: ${err?.message || 'could not load it as an image'}`);
+    } finally {
+      _fetchingPasted = false;
+    }
   }
 
   function _scrollBottom(instant = false) {
@@ -2419,7 +2457,8 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       <div class="ai-input-bar">
         <AttachImageButton disabled={loading} title={$_('trace.attach_image')}
           on:files={e => _useImageFiles(e.detail)}
-          on:pasteEmpty={() => showError('No image on the clipboard. Copy an image first.')} />
+          on:pasteUrl={e => attachImageFromUrl(e.detail)}
+          on:pasteEmpty={() => _chatNotice('No image on the clipboard. Copy an image first (or tap Paste when iPhone asks).')} />
         <textarea
           class="ai-textarea"
           bind:value={input}

@@ -66,3 +66,17 @@ test('expected_kcal: more than 20% off is refused; close enough logs', () => {
   assert.match(buildAiDiaryItem(tea, 100, 'g', 1, { expectedKcal: 150 }).error, /would log 27 kcal/);
   assert.equal(buildAiDiaryItem(tea, 547, 'ml', 1, { expectedKcal: 150 }).kcal, 148);
 });
+
+test('per-100 entry + label calories, no amount → amount worked out from the calories', () => {
+  const tea = { name: 'Pure Leaf Lemon', barcode: '0123', portion: 100, unit: 'ml', nutrition: { calories: 27 } };
+  const r = buildAiDiaryItem(tea, null, null, 1, { perHundredNeedsPortion: true, expectedKcal: 150 });
+  assert.equal(r.error, undefined);
+  assert.equal(r.item.portion, 556);
+  assert.equal(r.kcal, 150);
+  assert.match(r.warnings.join(' '), /worked out from the 150 kcal/);
+});
+
+test('mismatch error names the portion that would match', () => {
+  const tea = { name: 'Pure Leaf Lemon', barcode: '0123', portion: 100, unit: 'ml', nutrition: { calories: 27 } };
+  assert.match(buildAiDiaryItem(tea, 100, 'ml', 1, { expectedKcal: 150 }).error, /portion 556 and unit "ml"/);
+});
