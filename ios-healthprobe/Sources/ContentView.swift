@@ -87,7 +87,7 @@ struct ContentView: View {
                     }
                 }
                 Section {
-                    TextField("Server", text: $serverURL)
+                    TextField("https://your-nutritrace-server", text: $serverURL)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("API token (write:apple-health)", text: $apiToken)
                     Button("3. Send these days to NutriTrace") {

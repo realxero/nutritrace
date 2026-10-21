@@ -30,6 +30,7 @@ jobs:
 
       - name: Install + build the web app
         run: |
+          export VITE_FORK_BUILD="ios-${{ github.run_number }} · ${GITHUB_SHA::7}"
           npm ci
           npm run build
 

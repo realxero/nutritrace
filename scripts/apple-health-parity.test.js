@@ -20,3 +20,13 @@ test("phone-side ordering matches the server (apple_health last)", () => {
   assert.ok(orders.length >= 2);
   for (const o of orders) assert.match(o, /'apple_health' THEN 3/);
 });
+
+test("app's today view (Wellness) loads apple_health rows", () => {
+  const w = readFileSync(new URL('../src/routes/Wellness.svelte', import.meta.url), 'utf8');
+  assert.match(w, /dbGetWellnessGrouped\(dateStr, dateStr, 'apple_health'\)/);
+});
+
+test("phone-side adaptive TDEE considers apple_health like the server", () => {
+  const t = readFileSync(new URL('../src/lib/adaptive-tdee-local.js', import.meta.url), 'utf8');
+  assert.match(t, /PRIORITY = \[[^\]]*'apple_health'/);
+});

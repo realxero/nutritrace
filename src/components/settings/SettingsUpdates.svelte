@@ -20,7 +20,7 @@
   import { onMount } from 'svelte';
   import { _ } from 'svelte-i18n';
   import Toggle from './Toggle.svelte';
-  import { APP_VERSION } from '../../lib/version.js';
+  import { APP_VERSION, APP_BUILD } from '../../lib/version.js';
   import { isNative } from '../../lib/platform.js';
   import { currentUser } from '../../stores/auth.js';
   import { showSuccess, showError } from '../../stores/toast.js';
@@ -243,7 +243,7 @@
         <span class="material-symbols-rounded row-icon" aria-hidden="true">info</span>
         <div class="label-main">{$_('updates.current_version')}</div>
       </div>
-      <div class="row-value version-chip">{APP_VERSION}</div>
+      <div class="row-value version-chip" title="Build: {APP_BUILD}">{APP_VERSION}<span style="opacity:.6;font-weight:400"> · {APP_BUILD}</span></div>
     </div>
 
     <div class="divider"></div>

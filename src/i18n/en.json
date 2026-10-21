@@ -1102,7 +1102,7 @@
     "factor_maintain": "Maintain",
     "adaptive_note": "Learns your true TDEE from 35 days of weight + diary and adjusts daily. Falls back to your fixed goal until enough data is logged. See the readiness card on the Goals page for current status.",
     "how_it_works": "How it works →",
-    "dynamic_needs_wearable": "Dynamic mode needs a wearable that reports calorie burn (Fitbit, Garmin, or Google Health).",
+    "dynamic_needs_wearable": "Dynamic mode needs a wearable that reports calorie burn (Fitbit, Garmin, Google Health, or Apple Health).",
     "dynamic_needs_wearable_setup": "Set one up in Wellness"
   },
   "settings_stats": {
@@ -2160,7 +2160,7 @@
       "send_test": "Send Test",
       "test_failed_hint": "{provider} test failed, check the URL and credentials below",
       "device": "Device Notifications",
-      "device_desc": "Alerts delivered directly to this device, native on Android and browser pop-ups on desktop/PWA",
+      "device_desc": "Alerts delivered directly to this device: native on iPhone and Android, browser pop-ups on desktop/PWA",
       "push_service": "Push Service",
       "push_service_desc": "Server-relayed alerts via Apprise, Gotify, or ntfy — useful for PWA users or Home Assistant",
       "option_none": "None",

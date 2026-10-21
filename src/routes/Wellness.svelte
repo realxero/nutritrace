@@ -1213,13 +1213,15 @@
     try {
       const { dbGetWellnessGrouped } = await import('../lib/db-native.js');
       // Load each source separately so we can populate the right state vars
-      const [fitbitData, garminLocal, withingsLocal, hcData] = await Promise.all([
+      const [fitbitData, garminLocal, withingsLocal, hcData, appleData] = await Promise.all([
         dbGetWellnessGrouped(dateStr, dateStr, 'fitbit'),
         dbGetWellnessGrouped(dateStr, dateStr, 'garmin'),
         dbGetWellnessGrouped(dateStr, dateStr, 'withings'),
         dbGetWellnessGrouped(dateStr, dateStr, 'health_connect'),
+        dbGetWellnessGrouped(dateStr, dateStr, 'apple_health'),   // fork: iOS app
       ]);
-      data = { ...(hcData[dateStr] || {}), ...(fitbitData[dateStr] || {}) };
+      // Apple Health last so it wins ties, same as the server's ordering.
+      data = { ...(hcData[dateStr] || {}), ...(fitbitData[dateStr] || {}), ...(appleData[dateStr] || {}) };
       garminData = garminLocal[dateStr] || {};
       withingsData = withingsLocal[dateStr] || {};
       _hasLocalData = Object.keys(data).length > 0 || Object.keys(garminData).length > 0 || Object.keys(withingsData).length > 0;

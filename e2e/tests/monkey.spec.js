@@ -36,7 +36,14 @@ for (const route of ['/#/', '/#/foods', '/#/settings']) {
         mogwais: [g.mogwais.alert(), g.mogwais.gizmo({ maxErrors: 1000 })],
         strategies: [g.strategies.distribution({ nb: 400, delay: 15 })],
       });
-      await horde.unleash();
+      try {
+        await horde.unleash();
+      } catch (e) {
+        // gremlins.js itself sometimes taps an empty spot of the screen in
+        // WebKit and throws (null.dispatchEvent). That's the tool, not the app;
+        // app errors are still caught by the pageerror watcher below.
+        if (!/dispatchEvent|elementFromPoint/.test(String(e && e.message))) throw e;
+      }
     }, SEED);
     expect(errors.filter(e => e.startsWith('pageerror')), 'uncaught errors during monkey run').toEqual([]);
     // still alive: navigation works

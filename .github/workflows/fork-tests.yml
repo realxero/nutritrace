@@ -21,6 +21,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci --ignore-scripts
+      - run: npm ci --prefix server   # tests import server code (same as upstream CI)
       - run: npm test
 
   e2e:

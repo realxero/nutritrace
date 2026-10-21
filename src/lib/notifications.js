@@ -8,6 +8,7 @@
 import { settingPrefix } from './setting-key.js';
 import { isNative, resolveAssetUrl } from './platform.js';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
 
 // Verbose notification logs gated on dev OR opt-in verbose mode
 // (Settings → Diagnostics → Verbose diagnostic logging).
@@ -137,7 +138,11 @@ export async function showNotification(title, body, id = null) {
 // KILL SWITCH: Native WorkManager (ReminderWorker.java) handles meal/water/weigh-in
 // reminders smartly by checking SQLite. Set to false to re-enable the JS-scheduled
 // dumb fallback (fires regardless of diary state). See MEMORY: feedback_workmanager_reminders.
-const _USE_NATIVE_WORKER = true;
+// Fork: the WorkManager worker only exists in the Android app. On iOS the
+// JS schedulers below run instead (fixed-time daily reminders via the
+// system's notification scheduler). Without this, iPhone reminders were
+// silently never scheduled.
+const _USE_NATIVE_WORKER = Capacitor.getPlatform() === 'android';
 
 /** Schedule repeating water reminders every `intervalMin` minutes, 8am–10pm daily */
 export async function scheduleWaterReminders(intervalMin = 120) {
@@ -162,7 +167,7 @@ export async function scheduleWaterReminders(intervalMin = 120) {
       id: id++,
       title: '💧 Hydration Reminder',
       body: 'Time to drink some water! Stay hydrated.',
-      schedule: { at, every: 'day', allowWhileIdle: true },
+      schedule: { on: { hour: at.getHours(), minute: at.getMinutes() }, allowWhileIdle: true },
     });
   }
 
@@ -201,7 +206,7 @@ export async function scheduleMealReminders(times = ['08:00', '12:00', '18:00'],
       id: 2000 + i,
       title: '🍽️ Meal Reminder',
       body: `Time to log your ${mealNames[i] || 'meal'}!`,
-      schedule: { at, every: 'day', allowWhileIdle: true },
+      schedule: { on: { hour: at.getHours(), minute: at.getMinutes() }, allowWhileIdle: true },
     });
   });
 
@@ -536,7 +541,7 @@ export async function scheduleWeighInReminder(timeStr = '07:00') {
     id: 4000,
     title: '⚖️ Weigh-in Reminder',
     body: 'Time to step on the scale!',
-    schedule: { at, every: 'day', allowWhileIdle: true },
+    schedule: { on: { hour: at.getHours(), minute: at.getMinutes() }, allowWhileIdle: true },
     channelId: 'nutritrace',
   }]});
   _dlog(`[notifications] scheduled repeating weigh-in reminder at ${timeStr}`);

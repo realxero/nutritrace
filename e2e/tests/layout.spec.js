@@ -33,7 +33,11 @@ test('day-complete bar never covers the date bar after scrolling', async ({ page
   test.skip(!(await bar.count()), 'day completion bar not shown');
   const dateBar = page.getByText('Today', { exact: true }).filter({ visible: true }).first();
   for (const y of [0, 600, 99999, 0]) {
-    await page.mouse.wheel(0, y === 0 ? -99999 : y);
+    // (mobile WebKit has no mouse wheel; scroll the page's scroller directly)
+    await page.evaluate(y => {
+      const sc = document.querySelector('.page-transition') || document.scrollingElement;
+      sc.scrollTo(0, y === 0 ? 0 : sc.scrollTop + y);
+    }, y);
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));   // Safari toolbar collapse
     await page.waitForTimeout(400);
     const b = await bar.boundingBox(), d = await dateBar.boundingBox();

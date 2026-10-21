@@ -105,7 +105,7 @@ export async function computeAdaptiveTdeeLocal(opts = {}) {
     [LOCAL_USER_ID, startDate, endDate]
   );
 
-  const PRIORITY = ['withings', 'fitbit', 'garmin', 'health_connect'];
+  const PRIORITY = ['withings', 'fitbit', 'garmin', 'health_connect', 'apple_health']; // fork: same as server
   const wellnessByDate = new Map();
   for (const r of (wellRes?.values || [])) {
     const existing = wellnessByDate.get(r.date);
