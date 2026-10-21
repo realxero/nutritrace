@@ -1452,6 +1452,7 @@
       copyMode = 'item';
       copyDate = localDateStr();
       copyMeal = Number(actionItem.meal) || 0;
+      copyTime = '';
       _lockAndOpen(() => showCopySheet = true);
     }
     if (val === 'select')  { enterSelectMode(actionItem); }
@@ -1466,23 +1467,76 @@
   // so the UX is identical (consolidated from the previous two-step
   // per-meal copy_date flow that the user found redundant).
   let showCopySheet = false;
-  let copyMode = 'item'; // 'item' | 'meal'
+  let copyMode = 'item'; // 'item' | 'meal' | 'selected'
   let copyDate = null;
   let copyMeal = 0;
   let copyBusy = false;
+  // Fork: logged time for copies. '' = keep each item's own time of day.
+  let copyTime = '';
+  let _copySelected = [];   // items copied in 'selected' mode
 
   $: copySourceName = copyMode === 'meal'
     ? (meals[actionMealIdx] || 'meal')
-    : (actionItem?.name || 'item');
+    : copyMode === 'selected'
+      ? `${_copySelected.length} item${_copySelected.length === 1 ? '' : 's'}`
+      : (actionItem?.name || 'item');
+
+  // Fork: one-tap day shortcuts in the Copy sheet.
+  function _dayOffset(n) {
+    const d = new Date(); d.setDate(d.getDate() + n);
+    const p = x => String(x).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  // A copy's logged time: the chosen time on the target day, or the
+  // original item's time of day carried over to the target day.
+  function _copyAt(item) {
+    const hm = copyTime || _isoToHm(item?.addedAt || item?.dateTime) || '12:00';
+    const [h, m] = hm.split(':').map(Number);
+    const [y, mo, d] = copyDate.split('-').map(Number);
+    return new Date(y, mo - 1, d, h || 0, m || 0).toISOString();
+  }
+  function _stripForCopy(item) {
+    const { _i, id, uuid, ...rest } = item;
+    return rest;
+  }
+  function copyFromEdit() {
+    if (!editItem) return;
+    actionItem = editItem;
+    showEditSheet = false;
+    copyMode = 'item';
+    copyDate = localDateStr();
+    copyMeal = Number(editItem.meal) || 0;
+    copyTime = '';
+    _lockAndOpen(() => showCopySheet = true);
+  }
+  function copySelected() {
+    const all = entry?.items || [];
+    _copySelected = [...selectedItems].map(i => all[i]).filter(Boolean);
+    if (!_copySelected.length) return;
+    copyMode = 'selected';
+    copyDate = localDateStr();
+    copyMeal = -1;               // keep each item's own meal
+    copyTime = '';
+    _lockAndOpen(() => showCopySheet = true);
+  }
 
   async function onConfirmCopy() {
     if (!copyDate || copyBusy) return;
     copyBusy = true;
     try {
       const targetMeal = Number(copyMeal) || 0;
-      const mealLabel  = meals[targetMeal] || 'meal';
+      const mealLabel  = copyMode === 'selected' && Number(copyMeal) < 0 ? 'their meals' : (meals[targetMeal] || 'meal');
       const sameDay    = copyDate === $currentDate;
-      if (copyMode === 'meal') {
+      if (copyMode === 'selected') {
+        const { addDiaryItem } = await import('../stores/diary.js');
+        for (const it of _copySelected) {
+          const meal = Number(copyMeal) < 0 ? (Number(it.meal) || 0) : targetMeal;
+          await addDiaryItem(_stripForCopy(it), meal, copyDate, { addedAt: _copyAt(it) });
+        }
+        const n = _copySelected.length;
+        showSuccess(`Copied ${n} item${n === 1 ? '' : 's'} to ${mealLabel}${sameDay ? '' : ' on ' + copyDate}`);
+        exitSelectMode();
+      } else if (copyMode === 'meal') {
         const from = actionMealIdx;
         if (from == null) return;
         const n = await copyMealToDate(from, copyDate, targetMeal);
@@ -1496,8 +1550,7 @@
         // Shallow clone + scrub the fields that bind the item to its
         // current row. addDiaryItem generates a new index + id on the
         // destination day. Image references + notes are preserved.
-        const { _i, id, ...rest } = actionItem;
-        await addDiaryItem(rest, targetMeal, copyDate);
+        await addDiaryItem(_stripForCopy(actionItem), targetMeal, copyDate, { addedAt: _copyAt(actionItem) });
         showSuccess(sameDay
           ? `Copied to ${mealLabel}`
           : `Copied to ${mealLabel} on ${copyDate}`);
@@ -1971,6 +2024,10 @@
     {#if selectMode}
       <button class="btn-icon" on:click={exitSelectMode} aria-label={$_('diary.actions.cancel_selection')} title={$_('diary.actions.cancel_selection')}>
         <span class="material-symbols-rounded">close</span>
+      </button>
+      <button class="btn-icon accent" disabled={selectedItems.size === 0} on:click={copySelected}
+        aria-label="Copy selected" title="Copy selected" data-testid="copy-selected">
+        <span class="material-symbols-rounded">content_copy</span>
       </button>
       <button class="btn-icon" style="color:var(--danger)" disabled={selectedItems.size === 0}
         on:click={() => showMultiDeleteDialog = true} aria-label={$_('diary.actions.delete_selected')} title={$_('diary.actions.delete_selected')}>
@@ -2949,6 +3006,9 @@
           </div>
         {/if}
         <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>{$_('diary.edit_item.save')}</button>
+        <button class="btn btn-ghost w-full" style="margin-top:8px" on:click={copyFromEdit} data-testid="edit-copy-btn">
+          <span class="material-symbols-rounded" style="font-size:18px">content_copy</span> Copy to another day or meal
+        </button>
       {:else}
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
@@ -3021,6 +3081,9 @@
       </button>
       {/if}
       <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>{$_('diary.edit_item.save')}</button>
+      <button class="btn btn-ghost w-full" style="margin-top:8px" on:click={copyFromEdit} data-testid="edit-copy-btn">
+        <span class="material-symbols-rounded" style="font-size:18px">content_copy</span> Copy to another day or meal
+      </button>
       {/if}
     </div>
   {/if}
@@ -3120,18 +3183,37 @@
     <div class="bs-sheet copy-date-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
       <p class="sheet-title">Copy "{copySourceName}" to…</p>
+      <div class="copy-day-chips" data-testid="copy-day-chips">
+        {#each [[-1, 'Yesterday'], [0, 'Today'], [1, 'Tomorrow']] as [off, lbl]}
+          <button class="copy-chip" class:active={copyDate === _dayOffset(off)} on:click={() => copyDate = _dayOffset(off)}>{lbl}</button>
+        {/each}
+      </div>
       <label class="copy-date-label">
         <span>Date</span>
         <DateInput bind:value={copyDate} />
       </label>
       <label class="copy-date-label">
         <span>Meal</span>
-        <select bind:value={copyMeal} class="select sel-sm" style="width:100%">
+        <select bind:value={copyMeal} class="select sel-sm" style="width:100%" data-testid="copy-meal">
+          {#if copyMode === 'selected'}<option value={-1}>Same meals as now</option>{/if}
           {#each meals as m, i}
             <option value={i}>{m}</option>
           {/each}
         </select>
       </label>
+      {#if copyMode !== 'meal'}
+        <div class="copy-date-label">
+          <span>Time</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:130px"><TimePicker bind:value={copyTime} /></div>
+            {#if copyTime}
+              <button class="btn-link" style="font-size:12px" on:click={() => copyTime = ''}>Keep original time</button>
+            {:else}
+              <span style="font-size:12px;color:var(--text-3)">Keeps the original time</span>
+            {/if}
+          </div>
+        </div>
+      {/if}
       <div class="copy-date-actions">
         <button class="btn btn-ghost" on:click={() => showCopySheet = false} disabled={copyBusy}>{$_('diary_deep.cancel')}</button>
         <button class="btn btn-primary" on:click={onConfirmCopy} disabled={!copyDate || copyBusy}>
@@ -4521,6 +4603,9 @@
     width: 100%; background: transparent; border: none; border-bottom: 1px dashed currentColor;
     text-align: center; font-size: 15px; font-weight: 700; padding: 2px 0; outline: none;
   }
+  .copy-day-chips { display: flex; gap: 6px; margin-bottom: 10px; }
+  .copy-chip { flex: 1; padding: 7px 0; border-radius: var(--radius-full, 999px); border: 1px solid var(--border); background: var(--surface-3); color: var(--text-1); font-size: 13px; cursor: pointer; }
+  .copy-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .edit-nut-toggle {
     display: inline-flex; align-items: center; gap: 4px; margin-top: 8px;
     background: none; border: none; color: var(--accent); font-size: 13px; cursor: pointer; padding: 4px 0;

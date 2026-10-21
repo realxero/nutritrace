@@ -2724,6 +2724,7 @@
   food={detailSheetFood}
   offStatus={_detailOffStatus}
   on:edit={onDetailEdit}
+  on:fixWithLabel={(e) => { editorState.labelPrompt = true; openEditor(e.detail.food, 'foodList'); }}
   on:addToDiary={onDetailAddToDiary}
   on:deleted={() => { detailSheetFood = null; load(); }} />
 

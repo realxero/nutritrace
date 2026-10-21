@@ -451,6 +451,13 @@
   // Gated on $aiEffectivelyEnabled — button is hidden when AI isn't configured.
   let scanningLabel = false;
   let scanLabelFileInput;
+  // Fork: opened via "Fix with a label photo", or a scanned barcode with no
+  // usable nutrition → show a prominent "scan the label" prompt up top.
+  let _labelPromptRequested = !!editorState.labelPrompt;
+  editorState.labelPrompt = false;
+  let labelFixed = false;
+  $: _hasKcal = Number(food.calories) > 0;
+  $: showLabelPrompt = $aiEffectivelyEnabled && !labelFixed && (_labelPromptRequested || (!!food.barcode && !_hasKcal));
 
   async function _captureLabelPhoto() {
     if (isNative) {
@@ -568,12 +575,30 @@
       if (typeof parsed.brand === 'string' && parsed.brand.trim()) food.brand = parsed.brand.trim();
       if (parsed.portion != null && !isNaN(parseFloat(parsed.portion))) food.portion = parseFloat(parsed.portion);
       if (typeof parsed.unit === 'string' && parsed.unit.trim()) food.unit = parsed.unit.trim();
+      // Fork: a label that lists values per 100 g / 100 ml (EU style) must
+      // be saved as a 100 g/ml serving, or a "serving" of 414 ml would carry
+      // per-100 numbers (the 41-instead-of-170 kcal bug).
+      if (parsed.per_serving === false) {
+        food.portion = 100;
+        food.unit = /ml|l\b|fl/i.test(String(parsed.unit || food.unit)) ? 'ml' : 'g';
+      }
       for (const n of NUTRIMENTS) {
         const v = parsed[n.id];
         if (v != null && !isNaN(parseFloat(v))) food[n.id] = parseFloat(v);
       }
       food = { ...food };
-      showSuccess($_('food_editor.toast.nutrition_extracted'));
+      labelFixed = true;
+      // Same impossible-number checks as photo logging.
+      const kc = Number(food.calories) || 0, por = Number(food.portion) || 0;
+      const grams = /^(g|ml)$/i.test(food.unit) ? por : 0;
+      const macro = 4 * (Number(food.proteins) || 0) + 4 * (Number(food.carbohydrates) || 0) + 9 * (Number(food.fat) || 0);
+      if (grams > 0 && kc / grams > 9.5) {
+        showError(`Check the numbers: ${kc} kcal in ${por} ${food.unit} isn't possible. Was the serving size read right?`);
+      } else if (kc > 0 && macro > 0 && Math.abs(macro - kc) > Math.max(50, kc * 0.35)) {
+        showInfo(`Read the label, but calories (${kc}) and the macros (~${Math.round(macro)} kcal) disagree. Worth a quick check.`);
+      } else {
+        showSuccess($_('food_editor.toast.nutrition_extracted'));
+      }
     } catch (e) {
       showError($_('food_editor.toast.scan_failed', { values: { error: e?.message || $_('food_editor.toast.unknown_error') } }));
     } finally {
@@ -970,6 +995,19 @@
         <span class="draft-restored-text">{$_('food_editor.draft_restored')}</span>
         <button type="button" class="draft-restored-discard" on:click={_discardDraft}>
           {$_('food_editor.draft_discard')}
+        </button>
+      </div>
+    {/if}
+
+    {#if showLabelPrompt}
+      <div class="card label-prompt" data-testid="label-prompt">
+        <span class="material-symbols-rounded" aria-hidden="true">document_scanner</span>
+        <div class="label-prompt-text">
+          <strong>{food.barcode && !_hasKcal ? 'No nutrition data for this product yet' : 'Fix this product\'s nutrition'}</strong>
+          <span>Take a photo of the Nutrition Facts label and the AI fills everything in. You check it, then save.</span>
+        </div>
+        <button class="btn btn-primary" on:click={scanLabel} disabled={scanningLabel} data-testid="label-prompt-scan">
+          {scanningLabel ? 'Reading…' : 'Scan label'}
         </button>
       </div>
     {/if}
@@ -1639,4 +1677,8 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  .label-prompt { display: flex; align-items: center; gap: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid var(--accent); }
+  .label-prompt > .material-symbols-rounded { color: var(--accent); font-size: 28px; }
+  .label-prompt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text-2); }
+  .label-prompt-text strong { color: var(--text-1); font-size: 14px; }
 </style>

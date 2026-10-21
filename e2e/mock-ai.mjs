@@ -96,6 +96,10 @@ function answer(body) {
     if (photoScenario === 'salad') return JSON.stringify(salad(asked, answered));
     return JSON.stringify(PHOTO);
   }
+  if (/nutrition label parser/i.test(sys)) {
+    if (photoScenario === 'label100') return JSON.stringify({ unit: 'ml', per_serving: false, calories: 28, carbohydrates: 6.5, sugars: 6, sodium: 4, proteins: 0, fat: 0 });
+    return JSON.stringify({ portion: 248, unit: 'ml', per_serving: true, calories: 70, carbohydrates: 16, sugars: 15, sodium: 10, proteins: 0, fat: 0 });
+  }
   if (/protein do i have left/i.test(user)) return 'You have 82 grams of protein left today.';
   return 'Mock Trace reply.';
 }

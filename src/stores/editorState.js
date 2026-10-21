@@ -12,6 +12,7 @@ export const editorState = {
   diaryScrollY:   null,  // scroll position to restore when returning to Diary after adding food
   foodsScrollY:   null,  // scroll position to restore when returning to Foods
   foodsActiveTab: null,  // tab index to restore when returning to Foods
+  labelPrompt:    false, // fork: open FoodEditor with the "scan the label" prompt
 };
 
 export function clearFoodEditorState() {

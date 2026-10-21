@@ -272,7 +272,7 @@ async function _save(entry) {
   return result;
 }
 
-export async function addDiaryItem(foodItem, meal, date) {
+export async function addDiaryItem(foodItem, meal, date, opts = {}) {
   let viewDate = null;
   currentDate.subscribe(v => viewDate = v)();
   const targetDate = date || viewDate || todayStr();
@@ -292,7 +292,8 @@ export async function addDiaryItem(foodItem, meal, date) {
     ...foodItem,
     uuid: _newUuid(),
     meal: meal != null ? Number(meal) : 0,
-    addedAt: new Date().toISOString(),
+    // Fork: copies can carry a chosen logged time (opts.addedAt).
+    addedAt: opts.addedAt || new Date().toISOString(),
     food_server_id,
   };
   // Logged on the phone before its food reached the server: `id` is this

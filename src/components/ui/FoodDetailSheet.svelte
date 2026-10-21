@@ -44,7 +44,7 @@
   import NutritionFactsBox from './NutritionFactsBox.svelte';
   import { resolveAssetUrl } from '../../lib/platform.js';
   import { Nutrition, energyUnitSuffix } from '../../lib/nutrition.js';
-  import { energyUnit, mealNames, disableAnimations } from '../../stores/settings.js';
+  import { energyUnit, mealNames, disableAnimations, aiEffectivelyEnabled } from '../../stores/settings.js';
   import { NtApi } from '../../lib/api.js';
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { showSuccess, showError } from '../../stores/toast.js';
@@ -247,6 +247,13 @@
             <span class="material-symbols-rounded" aria-hidden="true">info</span>
             <p>{$_(offStatus === 'none' ? 'foods.detail.off_none' : offStatus === 'implausible' ? 'foods.detail.off_implausible' : 'foods.detail.off_prepared_only')}</p>
           </div>
+          {#if $aiEffectivelyEnabled}
+            <button class="btn btn-secondary fix-label-btn" data-testid="fix-with-label"
+              on:click={() => { open = false; dispatch('fixWithLabel', { food: _displayFood }); }}>
+              <span class="material-symbols-rounded" style="font-size:18px">document_scanner</span>
+              Fix with a label photo
+            </button>
+          {/if}
         {/if}
         <button class="btn btn-primary add-btn"
                 disabled={offStatus !== 'ok'}
@@ -326,6 +333,13 @@
             <span class="material-symbols-rounded" aria-hidden="true">info</span>
             <p>{$_(offStatus === 'none' ? 'foods.detail.off_none' : offStatus === 'implausible' ? 'foods.detail.off_implausible' : 'foods.detail.off_prepared_only')}</p>
           </div>
+          {#if $aiEffectivelyEnabled}
+            <button class="btn btn-secondary fix-label-btn" data-testid="fix-with-label"
+              on:click={() => { open = false; dispatch('fixWithLabel', { food: _displayFood }); }}>
+              <span class="material-symbols-rounded" style="font-size:18px">document_scanner</span>
+              Fix with a label photo
+            </button>
+          {/if}
         {/if}
         <button class="btn btn-primary add-btn"
                 disabled={offStatus !== 'ok'}
@@ -559,4 +573,5 @@
   }
   .off-missing > .material-symbols-rounded { font-size: 18px; color: var(--accent); flex-shrink: 0; }
   .off-missing p { margin: 0; line-height: 1.4; }
+  .fix-label-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 8px; }
 </style>
