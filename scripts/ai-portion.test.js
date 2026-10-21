@@ -46,3 +46,23 @@ test('calories vs macros mismatch warns but still logs', () => {
   assert.equal(r.error, undefined);
   assert.equal(r.warnings.length, 1);
 });
+
+test('per-100 database entry with no amount is refused (the 27-kcal iced tea)', () => {
+  const tea = { name: 'Pure Leaf Lemon', barcode: '0123', portion: 100, unit: 'g', nutrition: { calories: 27, carbohydrates: 6.9 } };
+  const r = buildAiDiaryItem(tea, null, null, 1, { perHundredNeedsPortion: true });
+  assert.match(r.error, /stored per 100 g/);
+  const ok = buildAiDiaryItem(tea, 547, 'ml', 1, { perHundredNeedsPortion: true });
+  assert.equal(ok.error, undefined);
+  assert.equal(ok.kcal, 148);
+});
+
+test("the user's own per-100 foods (no barcode) still log without an amount", () => {
+  const own = { name: 'My granola', portion: 100, unit: 'g', nutrition: { calories: 450 } };
+  assert.equal(buildAiDiaryItem(own, null, null, 1, { perHundredNeedsPortion: false }).kcal, 450);
+});
+
+test('expected_kcal: more than 20% off is refused; close enough logs', () => {
+  const tea = { name: 'Pure Leaf Lemon', barcode: '0123', portion: 100, unit: 'g', nutrition: { calories: 27 } };
+  assert.match(buildAiDiaryItem(tea, 100, 'g', 1, { expectedKcal: 150 }).error, /would log 27 kcal/);
+  assert.equal(buildAiDiaryItem(tea, 547, 'ml', 1, { expectedKcal: 150 }).kcal, 148);
+});

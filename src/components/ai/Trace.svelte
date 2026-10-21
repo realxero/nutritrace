@@ -584,7 +584,7 @@
             // Single exact local hit — use it.
             const food = exactLocal[0];
             try {
-              const built = _buildAiDiaryItem(food, portionOverride, unitOverride, quantity);
+              const built = _buildAiDiaryItem(food, portionOverride, unitOverride, quantity, { expectedKcal: args?.expected_kcal, perHundredNeedsPortion: !!food.barcode });
               if (built.error) return { error: built.error };
               const { item, kcal, warnings } = built;
               const { addDiaryItem } = await import('../../stores/diary.js');
@@ -617,7 +617,7 @@
           if (substringLocal.length === 1) {
             const food = substringLocal[0];
             try {
-              const built = _buildAiDiaryItem(food, portionOverride, unitOverride, quantity);
+              const built = _buildAiDiaryItem(food, portionOverride, unitOverride, quantity, { expectedKcal: args?.expected_kcal, perHundredNeedsPortion: !!food.barcode });
               if (built.error) return { error: built.error };
               const { item, kcal, warnings } = built;
               const { addDiaryItem } = await import('../../stores/diary.js');
@@ -685,7 +685,7 @@
                 // Create in local catalog so future asks hit local tier and
                 // the food row exists for the diary item to reference.
                 const saved = await NtApi.createFood({ ...chosenOff, created_at: new Date().toISOString() });
-                const built = _buildAiDiaryItem(saved, portionOverride, unitOverride, quantity);
+                const built = _buildAiDiaryItem(saved, portionOverride, unitOverride, quantity, { expectedKcal: args?.expected_kcal, perHundredNeedsPortion: true });
                 if (built.error) return { error: built.error };
                 const { item, kcal, warnings } = built;
                 const { addDiaryItem } = await import('../../stores/diary.js');
@@ -1926,6 +1926,20 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
 
   function _removeImage() { attachedImage = null; }
 
+  // Fork: paste an image straight into the chat box (long-press → Paste on
+  // iPhone, Ctrl/Cmd+V on a computer). Text pastes behave as before.
+  function _onPaste(e) {
+    const files = [...(e.clipboardData?.files || [])].filter(f => /^image\//.test(f.type));
+    if (!files.length) {
+      const item = [...(e.clipboardData?.items || [])].find(i => i.kind === 'file' && /^image\//.test(i.type));
+      const f = item?.getAsFile();
+      if (f) files.push(f);
+    }
+    if (!files.length) return;
+    e.preventDefault();
+    _useImageFiles(files);
+  }
+
   function _scrollBottom(instant = false) {
     messagesEl?.scrollTo({ top: messagesEl.scrollHeight, behavior: instant ? 'instant' : 'smooth' });
   }
@@ -2404,12 +2418,14 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
       {/if}
       <div class="ai-input-bar">
         <AttachImageButton disabled={loading} title={$_('trace.attach_image')}
-          on:files={e => _useImageFiles(e.detail)} />
+          on:files={e => _useImageFiles(e.detail)}
+          on:pasteEmpty={() => showError('No image on the clipboard. Copy an image first.')} />
         <textarea
           class="ai-textarea"
           bind:value={input}
           placeholder={$_('trace.ask_placeholder')}
           on:keydown={onKey}
+          on:paste={_onPaste}
           rows="1"
           disabled={loading}
         ></textarea>

@@ -36,6 +36,26 @@
     menuOpen = !menuOpen;
   }
 
+  // Fork: paste a copied image (e.g. from Safari or Messages) instead of
+  // having to save it to Photos first. iOS shows its own "Paste" bubble.
+  const canPaste = typeof navigator !== 'undefined' && !!navigator.clipboard?.read;
+  async function pasteImage() {
+    menuOpen = false;
+    try {
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        const type = it.types.find(t => /^image\//.test(t));
+        if (!type) continue;
+        const blob = await it.getType(type);
+        emit([new File([blob], `pasted.${type.split('/')[1] || 'png'}`, { type })]);
+        return;
+      }
+      dispatch('pasteEmpty');
+    } catch {
+      dispatch('pasteEmpty');
+    }
+  }
+
   function emit(files) {
     const images = files.filter(f => f && /^image\//.test(f.type));
     if (images.length) dispatch('files', images);
@@ -104,6 +124,12 @@
         <span class="material-symbols-rounded" aria-hidden="true">photo_library</span>
         {$_('attach_image.gallery')}
       </button>
+      {#if canPaste}
+        <button type="button" role="menuitem" class="attach-image-option" on:click={pasteImage} data-testid="attach-paste">
+          <span class="material-symbols-rounded" aria-hidden="true">content_paste</span>
+          Paste image
+        </button>
+      {/if}
     </div>
   {/if}
   <input bind:this={fileInput} type="file" accept="image/*" {multiple} hidden on:change={onPicked} />

@@ -168,10 +168,11 @@ export const TOOLS = [
       properties: {
         food:     { type: 'string', description: 'The food name as the user said it. Plain natural language: "apple", "Greek yogurt", "Honey Nut Cheerios", "chicken breast", "olive oil". Brand can be included if mentioned ("Chobani Greek yogurt").' },
         meal:     { type: 'number', description: 'Meal index per the YOUR MEALS list in the system prompt. NEVER hardcode 0=breakfast/1=lunch/etc — that\'s only correct for the default meal layout. Match the user\'s named meal to its position in YOUR MEALS and pass that index. If the user did not name a meal and it isn\'t clearly implied, ASK them which meal.' },
-        portion:  { type: 'number', description: 'OPTIONAL portion amount. If omitted, the food\'s stored serving size is used (100g for fresh OFF lookups). Pass when the user specifies an amount: 200 for "200g of chicken", 150 for "150ml of milk", 1 for "1 cup of cereal".' },
+        portion:  { type: 'number', description: 'OPTIONAL portion amount. Database entries stored per 100 g/ml REQUIRE a portion (the tool says so if you omit it). For a packaged item in a photo, read the container size from the label and pass the whole container (a 18.5 fl oz / 547 ml bottle → 547 with unit "ml") unless the user says they had part of it. Pass when the user specifies an amount: 200 for "200g of chicken", 150 for "150ml of milk", 1 for "1 cup of cereal".' },
         unit:     { type: 'string', description: 'OPTIONAL portion unit (g, ml, oz, cup, tbsp, slice, piece). Defaults to the food\'s stored unit. Only pass if the user specified a unit DIFFERENT from grams.' },
         quantity: { type: 'number', description: 'OPTIONAL number of servings, defaults to 1. Use for "two apples" (quantity=2) or "half a banana" (quantity=0.5). Most asks use the default; portion+unit handles grams/ml directly.' },
         date:     { type: 'string', description: 'Optional YYYY-MM-DD; defaults to today.' },
+        expected_kcal: { type: 'number', description: 'OPTIONAL but pass it whenever you can see or were told the calories for what the user had: the number printed on a package in an attached photo (e.g. "150 calories per bottle" → 150), or "it was about 300 calories". The tool refuses to log if the result is more than 20% off, so you can fix the amount instead of saving a wrong number.' },
       },
       required: ['food', 'meal'],
     },

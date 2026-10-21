@@ -113,3 +113,20 @@ test('pizza (not shared) still starts at the whole pizza', async ({ page }) => {
   await expect(card.getByTestId('pl-kcal')).toHaveValue('2400');
   await expect(card.getByTestId('pl-shared')).toHaveCount(0);
 });
+
+test('pasting an image into the chat box attaches it', async ({ page }) => {
+  const errors = watchErrors(page);
+  await gotoDiary(page);
+  await page.locator('.ai-fab').click();
+  const box = page.locator('.ai-textarea');
+  await expect(box).toBeVisible();
+  await box.evaluate(async (el) => {
+    const c = document.createElement('canvas'); c.width = 8; c.height = 8;
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const dt = new DataTransfer();
+    dt.items.add(new File([blob], 'copied.png', { type: 'image/png' }));
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('img[alt="Attached"]')).toBeVisible();
+  expect(errors).toEqual([]);
+});
