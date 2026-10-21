@@ -31,7 +31,7 @@
   import { offNutritionStatus } from '../../lib/off-nutrition.js';
   // #241: an OFF match with no "as sold" values is shown but never logged
   // (saveItems skips it), so the Add button does not count it either.
-  const _loggable = (m) => !!m.food && !(m.source === 'off' && offNutritionStatus(m.food, API.offNutritionInfo(m.food.barcode)) !== 'ok');
+  const _loggable = (m) => !!m.food && !(m.source === 'off' && !m.food._ai && offNutritionStatus(m.food, API.offNutritionInfo(m.food.barcode)) !== 'ok');
   import { isNative } from '../../lib/platform.js';
 
   export let date;                  // 'YYYY-MM-DD'
@@ -247,7 +247,7 @@
     const unit = m.item.unit ? String(m.item.unit).toLowerCase().trim() : null;
     const isWeightOrVolume = unit === 'g' || unit === 'ml' || unit === 'gram' || unit === 'grams';
     const newQuantity = isWeightOrVolume ? qty : basePortion * qty;
-    matchedItems[i] = { ...m, food: candidate, quantity: newQuantity };
+    matchedItems[i] = { ...m, food: candidate, quantity: newQuantity, source: candidate._source || m.source };
     matchedItems = matchedItems;
   }
 
@@ -357,6 +357,7 @@
                 {m.food?.name || m.item.name}
                 {#if m.source === 'local'}<span class="ql-badge ql-badge-local">{$_('smart_log.badge_local')}</span>{/if}
                 {#if m.source === 'off'}<span class="ql-badge ql-badge-off">OFF</span>{/if}
+                {#if m.source === 'ai'}<span class="ql-badge ql-badge-ai" title="Estimated by AI — swap if a database match fits better">AI est.</span>{/if}
                 {#if m.source === 'meal'}<span class="ql-badge ql-badge-meal">Meal</span>{/if}
                 {#if m.source === 'recipe'}<span class="ql-badge ql-badge-recipe">{$_('smart_log.badge_recipe')}</span>{/if}
                 {#if m.source === 'yesterday'}<span class="ql-badge ql-badge-yesterday">{$_('smart_log.badge_yesterday')}</span>{/if}
@@ -381,7 +382,7 @@
                     {/each}
                   </div>
                 </details>
-              {:else if m.food && m.source === 'off' && offNutritionStatus(m.food, API.offNutritionInfo(m.food.barcode)) !== 'ok'}
+              {:else if m.food && m.source === 'off' && !m.food._ai && offNutritionStatus(m.food, API.offNutritionInfo(m.food.barcode)) !== 'ok'}
                 <!-- #241: not 0 kcal, just no "as sold" values on OFF. -->
                 <div class="ql-row-meta">{$_('smart_log.off_no_values')}</div>
               {:else if m.food}
@@ -399,7 +400,7 @@
                   <div class="ql-candidates">
                     {#each m.candidates as c}
                       <button class="ql-candidate" class:active={c === m.food} on:click={() => swapCandidate(i, c)}>
-                        {c.name}{c.brand ? ' · ' + c.brand : ''}
+                        {c._ai ? '✨ ' : ''}{c.name}{c.brand && !c._ai ? ' · ' + c.brand : ''}{c._ai ? ' (AI estimate)' : ''}
                       </button>
                     {/each}
                   </div>
@@ -623,6 +624,7 @@
     letter-spacing: 0.04em;
   }
   .ql-badge-local     { background: var(--accent-dim); color: var(--accent); }
+  .ql-badge-ai        { background: color-mix(in srgb, #f59e0b 20%, transparent); color: #fbbf24; }
   .ql-badge-off       { background: color-mix(in srgb, #3b82f6 20%, transparent); color: #60a5fa; }
   .ql-badge-meal      { background: color-mix(in srgb, #a855f7 20%, transparent); color: #c084fc; }
   .ql-badge-recipe    { background: color-mix(in srgb, #ec4899 20%, transparent); color: #f472b6; }

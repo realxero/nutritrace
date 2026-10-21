@@ -241,7 +241,7 @@ export const TOOLS = [
 
 // ── Main entry point ─────────────────────────────────────────────────────────
 
-export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl }) {
+export async function callAI({ provider, apiKey, model, messages, systemPrompt, tools, onToolCall, baseUrl, webSearch = false }) {
   // The 'oai-compat' provider points at any /v1/chat/completions endpoint
   // (Ollama, LM Studio, LocalAI, vLLM, DeepSeek, Groq, Together AI, etc.)
   // Local endpoints don't need an API key; cloud ones do. Other providers
@@ -252,7 +252,7 @@ export async function callAI({ provider, apiKey, model, messages, systemPrompt, 
   switch (provider) {
     case 'claude':     return _callClaudeWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
     case 'openai':     return _callOpenAIWithTools(apiKey, renamedModel(model), messages, systemPrompt, tools, onToolCall, 'https://api.openai.com');
-    case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall);
+    case 'gemini':     return _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, { webSearch });
     case 'oai-compat': {
       if (!baseUrl) throw new Error('OpenAI Compatible provider needs a Base URL. Set one in Settings → AI Assistant.');
       if (!model)   throw new Error('OpenAI Compatible provider needs a model name. Set one in Settings → AI Assistant.');
@@ -538,7 +538,7 @@ export function geminiModelFor(model) {
   return GEMINI_RETIRED.has(m) ? AI_DEFAULT_MODELS.gemini : m;
 }
 
-async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall) {
+async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools, onToolCall, { webSearch = false } = {}) {
   const m = geminiModelFor(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
@@ -555,6 +555,10 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
     if (msg._image) {
       parts.push({ inlineData: { mimeType: msg._image.mimeType, data: msg._image.base64 } });
     }
+    // Fork: several photos in one message (product front + nutrition label).
+    for (const img of (msg._images || [])) {
+      parts.push({ inlineData: { mimeType: img.mimeType, data: img.base64 } });
+    }
     parts.push({ text: typeof msg.content === 'string' ? msg.content : (msg.content || '') });
     return { role: msg.role === 'assistant' ? 'model' : 'user', parts };
   });
@@ -567,6 +571,10 @@ async function _callGeminiWithTools(apiKey, model, messages, systemPrompt, tools
       contents,
     };
     if (geminiTools) body.tools = geminiTools;
+    // Fork: Google Search grounding (used by photo logging to confirm a
+    // product's published nutrition). Only when no function tools are in
+    // play — the two can't share a request on every model.
+    else if (webSearch) body.tools = [{ google_search: {} }];
 
     const res = await fetch(url, {
       method: 'POST',

@@ -28,6 +28,7 @@ Reply with ONLY a JSON object, no markdown, no prose. Shape:
     "label": "everyday description, e.g. \\"1 bottle (14 fl oz)\\", \\"1 bowl\\", \\"2 slices\\""
   },
   "nutrition": { "calories": number, ...other keys },  // for the WHOLE serving above
+  "source": "label" | "web" | "estimate",   // where the numbers came from
   "confidence": "high" | "medium" | "low",
   "note": "one short sentence on what you assumed, or null"
 }
@@ -40,6 +41,11 @@ Rules:
 - Nutrition values are for the whole serving, NOT per 100 g/ml.
 - Allowed nutrition keys (units): ${NUTRIENT_KEYS.map(k => `${k} (${NUTRIENT_UNITS[k]})`).join(', ')}.
   Always include calories, proteins, carbohydrates, fat. Include others when you can estimate them.
+- You may get several photos of the same item (e.g. the front and the Nutrition Facts panel).
+  Treat them as one item. Numbers read from a Nutrition Facts panel win over everything else (source "label").
+- If you have a web search tool, use it for packaged/branded products and chain-restaurant items
+  to find the official nutrition for that exact product and size (source "web"). If nothing
+  reliable turns up, give your best estimate (source "estimate", confidence "low" or "medium").
 - If the photo shows no food or drink, reply {"error": "short reason"}.`;
 
 async function _fileToDataUrl(file) {
@@ -51,16 +57,16 @@ async function _fileToDataUrl(file) {
   });
 }
 
-function _imageMessage(provider, text, image) {
+function _imageMessage(provider, text, images) {
   if (provider === 'claude') {
     return { role: 'user', content: [
-      { type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } },
+      ...images.map(image => ({ type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.base64 } })),
       { type: 'text', text },
     ] };
   }
-  if (provider === 'gemini') return { role: 'user', content: text, _image: image };
+  if (provider === 'gemini') return { role: 'user', content: text, _images: images };
   return { role: 'user', content: [
-    { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
+    ...images.map(image => ({ type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.base64}` } })),
     { type: 'text', text },
   ] };
 }
@@ -104,6 +110,7 @@ export function normalizeEstimate(raw) {
     nutrition,
     note: raw.note ? String(raw.note).slice(0, 200) : '',
     confidence: ['high', 'medium', 'low'].includes(raw.confidence) ? raw.confidence : 'medium',
+    source: ['label', 'web', 'estimate'].includes(raw.source) ? raw.source : 'estimate',
     warnings,
   };
 }
@@ -120,13 +127,22 @@ export function _altUnitsFor(label, amount) {
   return [{ abbr, grams: Math.round((amount / count) * 10) / 10 }];
 }
 
-export async function analyzeMealPhoto(file, { onStage } = {}) {
+/**
+ * files: one File or an array (e.g. [front, nutrition label]). The first
+ * photo becomes the food's picture. webSearch lets Gemini look the product
+ * up online (other providers ignore it).
+ */
+export async function analyzeMealPhoto(files, { onStage, webSearch } = {}) {
+  const list = (Array.isArray(files) ? files : [files]).filter(Boolean).slice(0, 3);
+  if (!list.length) throw new Error('No photo');
   onStage?.('reading');
-  const original = await _fileToDataUrl(file);
-  // Small copy for the AI (cheaper, faster); bigger copy kept for the diary.
-  const forAi = await fitImageDataUrl(original, 1024, 0.85);
-  const forDiary = await fitImageDataUrl(original, 1280, 0.85);
-  const [, mime = 'image/jpeg', base64 = ''] = forAi.match(/^data:([^;]+);base64,(.*)$/) || [];
+  const originals = await Promise.all(list.map(_fileToDataUrl));
+  const forAi = await Promise.all(originals.map(o => fitImageDataUrl(o, 1280, 0.85)));
+  const forDiary = await fitImageDataUrl(originals[0], 1280, 0.85);
+  const images = forAi.map(d => {
+    const [, mimeType = 'image/jpeg', base64 = ''] = d.match(/^data:([^;]+);base64,(.*)$/) || [];
+    return { mimeType, base64 };
+  });
 
   onStage?.('analyzing');
   const { aiProvider, aiModel, aiBaseUrl, aiApiKey, envLocks } = await import('../stores/settings.js');
@@ -134,29 +150,44 @@ export async function analyzeMealPhoto(file, { onStage } = {}) {
   const get = s => { let v; s.subscribe(x => v = x)(); return v; };
   const envLocked = !!get(envLocks)?.ai;
   const provider = get(aiProvider) || 'claude';
-  const prompt = 'Estimate the nutrition for what is pictured. JSON only.';
-  const image = { mimeType: mime, base64 };
+  const prompt = list.length > 1
+    ? `These ${list.length} photos show the same item (e.g. front and Nutrition Facts). Estimate its nutrition. JSON only.`
+    : 'Estimate the nutrition for what is pictured. JSON only.';
   let reply;
   if (envLocked) {
-    reply = await callAIProxy({ messages: [_imageMessage('openai', prompt, image)], systemPrompt: SYSTEM_PROMPT, tools: [] });
+    reply = await callAIProxy({ messages: [_imageMessage('openai', prompt, images)], systemPrompt: SYSTEM_PROMPT, tools: [] });
   } else {
     const apiKey = get(aiApiKey);
     if (!apiKey && provider !== 'oai-compat') throw new Error('Add your AI key in Settings → AI Assistant');
     const msgProvider = provider === 'oai-compat' ? 'openai' : provider;
-    reply = await callAI({
+    const args = {
       provider, apiKey, model: get(aiModel) || undefined, baseUrl: get(aiBaseUrl) || undefined,
-      messages: [_imageMessage(msgProvider, prompt, image)], systemPrompt: SYSTEM_PROMPT, tools: [],
-    });
+      messages: [_imageMessage(msgProvider, prompt, images)], systemPrompt: SYSTEM_PROMPT, tools: [],
+    };
+    try {
+      reply = await callAI({ ...args, webSearch: !!webSearch && provider === 'gemini' });
+    } catch (e) {
+      // Some models/keys don't allow search grounding — retry without it.
+      if (!webSearch || provider !== 'gemini') throw e;
+      reply = await callAI(args);
+    }
   }
   return { estimate: normalizeEstimate(_parseJson(reply)), imageDataUrl: forDiary };
 }
 
-/** Full flow. Returns { food, estimate, kcal, mealName }. */
-export async function logMealPhoto(file, mealIdx, date, { onStage } = {}) {
-  const { estimate, imageDataUrl } = await analyzeMealPhoto(file, { onStage });
-  onStage?.('saving');
+/** Scale every nutrient when the user changes the amount on the review card. */
+export function rescaleEstimate(estimate, newAmount) {
+  const a = Number(newAmount);
+  if (!(a > 0) || !(estimate.amount > 0)) return estimate;
+  const f = a / estimate.amount;
+  const nutrition = Object.fromEntries(Object.entries(estimate.nutrition).map(([k, v]) => [k, Math.round(v * f * 10) / 10]));
+  return { ...estimate, amount: a, nutrition };
+}
+
+/** Save the estimate as a Food (with the photo as its image). */
+export async function saveEstimatedFood(estimate, imageDataUrl) {
   const { NtApi } = await import('./api.js');
-  const food = await NtApi.createFood({
+  return NtApi.createFood({
     name: estimate.name,
     brand: estimate.brand,
     portion: estimate.amount,
@@ -168,6 +199,10 @@ export async function logMealPhoto(file, mealIdx, date, { onStage } = {}) {
     alt_units: _altUnitsFor(estimate.label, estimate.amount),
     visibility: 'private',
   });
+}
+
+/** Log one pictured serving of a saved photo food to a meal. Returns kcal. */
+export async function logPhotoServing(food, estimate, imageDataUrl, mealIdx, date) {
   const { addDiaryItem } = await import('../stores/diary.js');
   const item = {
     ...food,
@@ -178,6 +213,17 @@ export async function logMealPhoto(file, mealIdx, date, { onStage } = {}) {
     quantity: 1,
   };
   await addDiaryItem(item, mealIdx, date);
-  const kcal = Math.round(Nutrition.calculate(item).calories || 0);
-  return { food, estimate, kcal };
+  return Math.round(Nutrition.calculate(item).calories || 0);
+}
+
+/** Full flow: photo → estimate → saved food → (optionally) logged.
+ *  mealIdx null = save to Foods only. Returns { food, estimate, kcal, imageDataUrl }. */
+export async function logMealPhoto(files, mealIdx, date, { onStage, webSearch } = {}) {
+  const { estimate, imageDataUrl } = await analyzeMealPhoto(files, { onStage, webSearch });
+  onStage?.('saving');
+  const food = await saveEstimatedFood(estimate, imageDataUrl);
+  const kcal = mealIdx == null
+    ? Math.round(estimate.nutrition.calories)
+    : await logPhotoServing(food, estimate, imageDataUrl, mealIdx, date);
+  return { food, estimate, kcal, imageDataUrl, logged: mealIdx != null };
 }

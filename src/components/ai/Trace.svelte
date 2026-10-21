@@ -11,7 +11,7 @@
   import { confirmDialog } from '../../stores/confirmDialog.js';
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition, NUTRIMENTS } from '../../lib/nutrition.js';
-  import { scaleFactor as _unitScaleFactor } from '../../lib/units.js';
+  import { buildAiDiaryItem as _buildAiDiaryItem } from '../../lib/ai-portion.js';
   // Comma-joined list of every NT-tracked nutriment ID — inlined into the
   // system prompt so the AI knows the full key universe at a glance and
   // doesn't default to "just the four macros".
@@ -1327,59 +1327,6 @@
   }
 
   // ── Chat ───────────────────────────────────────────────────────────────────
-  // ── log_food portion scaling + sanity check ─────────────────────────────
-  // Diary items store nutrition PRE-SCALED to the item's own portion:
-  // Nutrition.calculate() only multiplies by quantity. Foods.svelte
-  // (confirmQtyPrompt) and quick-log.js already scale by
-  // newPortion / food.portion before addDiaryItem. log_food did not: it
-  // copied food.nutrition (per food.portion, usually 100 g/ml) onto an
-  // item with the AI's portion, so "log this 414 ml bottle" saved the
-  // per-100 ml values (41 kcal instead of 170) while telling the AI it
-  // logged 170. This builds the item the same way the manual path does,
-  // and returns kcal computed from the item that is actually saved.
-  const _AI_MAX_KCAL_PER_G = 9.5;  // pure fat is ~9; nothing real is denser
-  function _buildAiDiaryItem(food, portionOverride, unitOverride, quantity) {
-    const origPortion = parseFloat(food.portion) > 0 ? parseFloat(food.portion) : 100;
-    const origUnit    = food.unit || 'g';
-    const newPortion  = portionOverride ?? origPortion;
-    const newUnit     = unitOverride ?? origUnit;
-    // Opaque units ("bottle", "scoop") only convert if this food has an
-    // alt_units row for them; otherwise scaleFactor falls back to a raw
-    // number ratio (1 bottle vs 100 g = x0.01), which is never right.
-    const _MASS_VOL = /^(mg|g|kg|oz|lb|ml|l|tsp|tbsp|cup|fl ?oz)$/i;
-    const _hasAlt = (food.alt_units || []).some(a => String(a?.abbr || '').toLowerCase() === String(newUnit).toLowerCase());
-    if (String(newUnit).toLowerCase() !== String(origUnit).toLowerCase() && !_MASS_VOL.test(newUnit) && !_hasAlt) {
-      return { error: `"${newUnit}" can't be converted for "${food.name}" (saved per ${origPortion} ${origUnit}). Call log_food again with portion in g or ml from the label (e.g. 414 ml for a 14 fl oz bottle).` };
-    }
-    const factor = _unitScaleFactor(origPortion, origUnit, newPortion, newUnit, food);
-    if (!Number.isFinite(factor) || factor <= 0) {
-      return { error: `Could not convert ${newPortion} ${newUnit} into this food's serving (${origPortion} ${origUnit}). Call log_food again with portion in ${origUnit}, or use quantity for whole servings.` };
-    }
-    const nutrition = food.nutrition && typeof food.nutrition === 'object'
-      ? Object.fromEntries(Object.entries(food.nutrition).map(([k, v]) =>
-          [k, k === '_derived' ? v : (parseFloat(v) || 0) * factor]))
-      : food.nutrition;
-    const item = { ...food, portion: newPortion, unit: newUnit, nutrition, quantity };
-    const totals = Nutrition.calculate(item);
-    const kcal = Math.round(totals.calories || 0);
-
-    // Sanity checks on what is about to be saved.
-    if (kcal === 0 && (parseFloat(food.nutrition?.calories) || 0) > 0) {
-      return { error: `Scaling "${food.name}" to ${newPortion} ${newUnit} came out to 0 kcal, so nothing was logged. Ask the user for the amount in g or ml.` };
-    }
-    const warnings = [];
-    const amountG = /^(g|ml)$/i.test(newUnit) ? newPortion * quantity : null;
-    if (amountG && kcal / amountG > _AI_MAX_KCAL_PER_G) {
-      return { error: `Refusing to log: ${kcal} kcal for ${amountG} ${newUnit} is more energy than pure fat. The food's saved nutrition is probably wrong; tell the user to check "${food.name}" in the Foods tab.` };
-    }
-    const p = totals.proteins || 0, c = totals.carbohydrates || 0, f = totals.fat || 0;
-    const macroKcal = 4 * p + 4 * c + 9 * f;
-    if (kcal > 0 && macroKcal > 0 && Math.abs(macroKcal - kcal) > Math.max(50, kcal * 0.35)) {
-      warnings.push(`Calories (${kcal}) don't match the macros (~${Math.round(macroKcal)} kcal from P/C/F). Tell the user the saved values for "${food.name}" may be off.`);
-    }
-    return { item, kcal, factor, warnings };
-  }
-
   async function buildContext() {
     const today  = localDateStr();
     const entry  = await NtApi.getDiaryDate(today).catch(() => null);
@@ -2131,22 +2078,23 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
        Uses transform: translateX(-50%) so the pill stays centered on the FAB
        regardless of how wide the text inside is. Position is based on the
        FAB's center x-coordinate (FAB width = 60px → center = pos.x + 30). -->
+  <!-- Fork: full-width voice panel. Words get room to wrap instead of
+       spilling out of a small bubble. pointer-events:none so it never
+       steals the finger that's holding the Trace button. -->
   {#if recordingMode || voiceStage === 'processing'}
-    <div
-      class="fab-record-hint"
-      class:cancel={cancelPreview && recordingMode}
-      class:has-words={!!liveTranscript || voiceStage === 'processing'}
-      style={fabPos ? `left:${Math.min(Math.max(fabPos.x + 30, 150), (typeof window !== 'undefined' ? window.innerWidth : 400) - 150)}px; top:${fabPos.y - 12}px; right:auto; transform:translate(-50%, -100%);` : ''}
-    >
+    <div class="voice-panel" class:cancel={cancelPreview && recordingMode}
+         data-testid="voice-panel" aria-live="polite"
+         in:fly={{ y: 24, duration: 160 }} out:fade={{ duration: 140 }}>
       {#if recordingMode && cancelPreview}
-        ✕ Release to cancel
+        <div class="vp-head"><span class="material-symbols-rounded">close</span> Release to cancel</div>
       {:else if recordingMode}
-        <div class="hint-head"><span class="hint-dot"></span> Listening… release to log</div>
-        {#if liveTranscript}<div class="hint-words">“{liveTranscript}”</div>{/if}
+        <div class="vp-head"><span class="vp-dot"></span> Listening… release to log, slide away to cancel</div>
       {:else}
-        <div class="hint-head"><span class="hint-spin"></span> Finding foods…</div>
-        {#if liveTranscript || smartLogText}<div class="hint-words">“{liveTranscript || smartLogText}”</div>{/if}
+        <div class="vp-head"><span class="vp-spin"></span> Finding foods…</div>
       {/if}
+      <div class="vp-words" class:placeholder={!(liveTranscript || (!recordingMode && smartLogText))}>
+        {liveTranscript || (!recordingMode && smartLogText) || 'Say what you ate, e.g. “two eggs and toast for breakfast”'}
+      </div>
     </div>
   {/if}
 
@@ -2514,6 +2462,30 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
   .hint-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: hint-rot .8s linear infinite; flex: none; }
   @keyframes hint-blink { 50% { opacity: .25; } }
   @keyframes hint-rot { to { transform: rotate(360deg); } }
+  .voice-panel {
+    position: fixed; z-index: 402; pointer-events: none;
+    left: 12px; right: 12px;
+    bottom: calc(var(--nav-h, 64px) + var(--safe-bottom, 0px) + 96px);
+    max-width: 560px; margin: 0 auto;
+    max-height: 45vh; overflow: hidden;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 14px 16px; border-radius: 18px;
+    background: rgba(0, 0, 0, 0.86);
+    backdrop-filter: blur(12px) saturate(180%); -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.18); color: #fff;
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .voice-panel.cancel { border-color: rgba(239, 68, 68, .7); }
+  .vp-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; opacity: .85; }
+  .vp-words {
+    font-size: 20px; font-weight: 600; line-height: 1.3;
+    overflow-wrap: anywhere; white-space: normal;
+    overflow-y: auto; min-height: 1.3em;
+    display: flex; flex-direction: column-reverse; /* keep newest words visible */
+  }
+  .vp-words.placeholder { font-size: 15px; font-weight: 500; opacity: .55; }
+  .vp-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; animation: hint-blink 1s ease-in-out infinite; flex: none; }
+  .vp-spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: hint-rot .8s linear infinite; flex: none; }
   .ai-fab.recording {
     transform: scale(1.08);
     background: linear-gradient(135deg, #ef4444, #b91c1c, #ef4444, #dc2626, #ef4444);

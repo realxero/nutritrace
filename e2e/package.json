@@ -1,0 +1,13 @@
+{
+  "name": "nutritrace-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "monkey": "playwright test monkey.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "gremlins.js": "2.2.0"
+  }
+}

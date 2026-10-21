@@ -1020,7 +1020,9 @@
   // as an available integration to render the data. The setting itself is
   // managed from the Android app (Settings → Wellness card is gated by
   // isNative); the web just reflects whatever the user enabled there.
-  $: healthConnectAvailable = $healthConnectEnabled;
+  // Fork: Apple Health is also a phone-pushed source whose rows ride the
+  // same server endpoint, so it unlocks the same tabs as Health Connect.
+  $: healthConnectAvailable = $healthConnectEnabled || $appleHealthEnabled;
   $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable;
   // Count the number of enabled providers so the left-rail can
   // hide its 'Providers' heading when there's only one — no need

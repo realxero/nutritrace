@@ -54,6 +54,7 @@ export const USER_PREFS = new Set([
   // captured by the local full-backup ZIP. In server mode they're unused.
   'localUserName','localUserNickname','localUserAvatar',
   'aiEnabled','aiProvider','aiApiKey','aiModel','aiBaseUrl','aiAssistantName','aiKeyVerified','quickLogEnabled','aiGoalInsights','smartLogVoiceLang',
+  'photoLogWebSearch',
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
@@ -994,6 +995,8 @@ try {
 // Quick Log — natural-language food entry powered by the assistant's AI provider.
 // Off by default. Only usable when aiEnabled is true.
 export const quickLogEnabled  = createSettingStore('quickLogEnabled',  false);
+// Fork: let Gemini search the web to confirm a photographed product's nutrition.
+export const photoLogWebSearch = createSettingStore('photoLogWebSearch', true);
 export const aiGoalInsights   = createSettingStore('aiGoalInsights',   false);
 
 // Notifications

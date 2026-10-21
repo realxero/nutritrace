@@ -69,7 +69,7 @@
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { readBodyStat, tagBodyStats, LENGTH_KEYS } from '../lib/body-stats-unit.js';
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
-  import { pageScrollTop } from '../lib/scroll-anchor.js';
+  import { pageScrollTop, pageScroller } from '../lib/scroll-anchor.js';
   import { focusDefaultField } from '../lib/default-field.js';
 
   let addMealIdx = 0;
@@ -262,6 +262,7 @@
     editQuantity = item.quantity || 1;
     editLoggedTime = _isoToHm(item.addedAt || item.dateTime);
     _editChildContext = null;
+    editNutOverride = null;
     if (item?.type === 'quick_calories') {
       const storedKcal = Math.round(item.nutrition?.calories || 0);
       // Display in user's current energy unit; saved back to kcal.
@@ -286,12 +287,24 @@
     editUnit     = child.unit || 'g';
     editQuantity = child.quantity || 1;
     _editChildContext = { parentIdx, childIdx };
+    editNutOverride = null;
     _lockAndOpen(() => showEditSheet = true);
   }
 
   // null when editing a regular diary item; { parentIdx, childIdx } when
   // editing a split-recipe ingredient.
   let _editChildContext = null;
+  // Fork: hand-corrected totals for this entry (kcal/P/C/F as shown, i.e.
+  // for the whole amount). null = not editing nutrition.
+  let editNutOverride = null;
+  function startEditNutrition() {
+    editNutOverride = {
+      calories:      String(Math.round(editCalc.calories || 0)),
+      proteins:      String(Math.round((editCalc.proteins || 0) * 10) / 10),
+      carbohydrates: String(Math.round((editCalc.carbohydrates || 0) * 10) / 10),
+      fat:           String(Math.round((editCalc.fat || 0) * 10) / 10),
+    };
+  }
 
   async function saveEditItem() {
     if (!editItem) return;
@@ -342,10 +355,20 @@
         Object.entries(editItem.nutrition).map(([k, v]) => [k, (parseFloat(v) || 0) * portionFactor])
       );
     }
+    const _qty = parseDecimal(editQuantity) || 1;
+    if (editNutOverride) {
+      // Typed values are totals for the whole entry; nutrition is stored per
+      // serving, so divide by the number of servings.
+      newNutrition = { ...(newNutrition || {}) };
+      for (const [k, raw] of Object.entries(editNutOverride)) {
+        const v = parseDecimal(raw);
+        if (Number.isFinite(v) && v >= 0) newNutrition[k] = v / _qty;
+      }
+    }
     const changes = {
       portion:   newPortion,
       unit:      editUnit,
-      quantity:  parseDecimal(editQuantity) || 1,
+      quantity:  _qty,
       nutrition: newNutrition,
     };
     if (_editChildContext) {
@@ -623,9 +646,27 @@
   let _dayStatusTopPx = null;  // exposed as --dds-top on the portaled bar
   let _dayStatusPadPx = null;  // exposed as --dds-pad on .diary-content
   let _dayStatusBand = null;   // { top, height } of the band behind the bar
+  // Fork: iOS rubber-band overscroll moves the sticky header/date bar but
+  // not this fixed bar. A measurement taken mid-bounce (Safari fires resize
+  // as its toolbar collapses) baked in a wrong top and the bar then sat over
+  // the date bar for good. Skip measuring while overscrolled, and re-measure
+  // once scrolling settles so any bad value heals itself.
+  function _isOverscrolled() {
+    const y = pageScrollTop(_diaryContentEl);
+    const sc = _diaryContentEl && pageScroller(_diaryContentEl);
+    const max = sc ? sc.scrollHeight - sc.clientHeight
+                   : (document.documentElement.scrollHeight - window.innerHeight);
+    return y < 0 || y > max + 1;
+  }
+  let _ddsSettleTimer = null;
+  function _onScrollSettle() {
+    clearTimeout(_ddsSettleTimer);
+    _ddsSettleTimer = setTimeout(() => requestAnimationFrame(_measureDayStatus), 160);
+  }
   function _measureDayStatus() {
     if (!_stickyNavEl || !_diaryHeaderEl) return;
     if (!_stickyNavEl.offsetHeight) return; // not laid out yet
+    if (_isOverscrolled()) { _onScrollSettle(); return; }
     const pin = (el) => { const v = parseFloat(getComputedStyle(el).top); return Number.isFinite(v) ? v : 0; };
     // The date bar block pins exactly where the header ends (the header is
     // sticky too), so it sits flush under it whether or not the page is
@@ -676,8 +717,12 @@
     } catch { /* ResizeObserver unavailable: mount and resize measurements stand */ }
     requestAnimationFrame(() => requestAnimationFrame(_measureDayStatus));
     window.addEventListener('resize', _measureDayStatus);
+    // capture: catches scrolling of whichever element is the page scroller
+    window.addEventListener('scroll', _onScrollSettle, { passive: true, capture: true });
     return () => {
       window.removeEventListener('resize', _measureDayStatus);
+      window.removeEventListener('scroll', _onScrollSettle, { capture: true });
+      clearTimeout(_ddsSettleTimer);
       try { _dayStatusResizeObs?.disconnect(); } catch {}
     };
   });
@@ -2931,7 +2976,29 @@
         <span style="font-size:13px;color:var(--text-3)">{$_('diary_deep.total_amount')}</span>
         <span style="font-size:14px;font-weight:500">{Math.round((parseDecimal(editPortion) || 100) * (parseDecimal(editQuantity) || 1) * 10) / 10}{editUnit}</span>
       </div>
-      <div class="edit-macros">
+      {#if editNutOverride}
+      <div class="edit-macros edit-macros-input" data-testid="edit-nutrition">
+        <label class="edit-macro-pill" style="background:var(--macro-calories-dim)">
+          <input class="edit-macro-input" style="color:var(--macro-calories)" inputmode="decimal" bind:value={editNutOverride.calories} aria-label="Calories" />
+          <span class="edit-macro-label">kcal</span>
+        </label>
+        <label class="edit-macro-pill" style="background:var(--macro-protein-dim)">
+          <input class="edit-macro-input" style="color:var(--macro-protein)" inputmode="decimal" bind:value={editNutOverride.proteins} aria-label="Protein grams" />
+          <span class="edit-macro-label">protein g</span>
+        </label>
+        <label class="edit-macro-pill" style="background:var(--macro-carbs-dim)">
+          <input class="edit-macro-input" style="color:var(--macro-carbs)" inputmode="decimal" bind:value={editNutOverride.carbohydrates} aria-label="Carb grams" />
+          <span class="edit-macro-label">carbs g</span>
+        </label>
+        <label class="edit-macro-pill" style="background:var(--macro-fat-dim)">
+          <input class="edit-macro-input" style="color:var(--macro-fat)" inputmode="decimal" bind:value={editNutOverride.fat} aria-label="Fat grams" />
+          <span class="edit-macro-label">fat g</span>
+        </label>
+      </div>
+      <button class="btn-link edit-nut-toggle" on:click={() => editNutOverride = null}>Cancel nutrition edit</button>
+      {:else}
+      <div class="edit-macros" on:click={startEditNutrition} role="button" tabindex="0"
+           on:keydown={e => e.key === 'Enter' && startEditNutrition()} title="Tap to correct the numbers">
         <div class="edit-macro-pill" style="background:var(--macro-calories-dim)">
           <span class="edit-macro-val" style="color:var(--macro-calories)">{_editEnergy.value.toLocaleString()}</span>
           <span class="edit-macro-label">{_editEnergy.unit}</span>
@@ -2949,6 +3016,10 @@
           <span class="edit-macro-label">fat</span>
         </div>
       </div>
+      <button class="btn-link edit-nut-toggle" on:click={startEditNutrition} data-testid="edit-nutrition-btn">
+        <span class="material-symbols-rounded" style="font-size:16px">edit</span> Edit nutrition
+      </button>
+      {/if}
       <button class="btn btn-primary w-full" style="margin-top:16px" on:click={saveEditItem}>{$_('diary.edit_item.save')}</button>
       {/if}
     </div>
@@ -4446,6 +4517,14 @@
 
   .edit-sheet-body { padding: 16px; }
   .edit-macros { display: flex; gap: 8px; flex-wrap: wrap; }
+  .edit-macro-input {
+    width: 100%; background: transparent; border: none; border-bottom: 1px dashed currentColor;
+    text-align: center; font-size: 15px; font-weight: 700; padding: 2px 0; outline: none;
+  }
+  .edit-nut-toggle {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 8px;
+    background: none; border: none; color: var(--accent); font-size: 13px; cursor: pointer; padding: 4px 0;
+  }
   .edit-macro-pill {
     flex: 1;
     min-width: 60px;

@@ -155,7 +155,7 @@ test('every place an OFF product enters NutriTrace checks it', () => {
 
   const ql = read('../src/lib/quick-log.js');
   assert.match(ql, /let best = out\.candidates\.find\(usable\) \|\| offResults\[0\];/);
-  assert.match(ql, /if \(m\.source === 'off' && !food\.id && offNutritionStatus\(food, API\.offNutritionInfo\(food\.barcode\)\) !== 'ok'\) continue;/);
+  assert.match(ql, /if \(m\.source === 'off' && !food\._ai && !food\.id && offNutritionStatus\(food, API\.offNutritionInfo\(food\.barcode\)\) !== 'ok'\) continue;/);
   assert.match(read('../src/components/diary/SmartLogModal.svelte'), /smart_log\.off_no_values/);
   const modal = read('../src/components/diary/SmartLogModal.svelte');
   assert.match(modal, /Add \{matchedItems\.filter\(_loggable\)\.length\} to Diary/, 'the Add button counts only what will be logged');

@@ -8,6 +8,8 @@
   import Tabs        from '../components/ui/Tabs.svelte';
   import ActionSheet     from '../components/ui/ActionSheet.svelte';
   import BarcodeScanner from '../components/foods/BarcodeScanner.svelte';
+  import PhotoLogButton from '../components/diary/PhotoLogButton.svelte';
+  import { aiEffectivelyEnabled } from '../stores/settings.js';
   import Dialog      from '../components/ui/Dialog.svelte';
   import Sheet       from '../components/ui/Sheet.svelte';
   import FoodDetailSheet from '../components/ui/FoodDetailSheet.svelte';
@@ -2030,10 +2032,17 @@
         placeholder={$_('foods.search_placeholder')}
         bind:this={_searchInputEl}
         bind:value={search}
+        class:has-photo-btn={$aiEffectivelyEnabled}
       />
       <button class="btn-scan-inline" on:click={() => scannerOpen = true} aria-label={$_('foods.scan_barcode')} title={$_('foods.scan_barcode')}>
         <span class="material-symbols-rounded">barcode_scanner</span>
       </button>
+      {#if $aiEffectivelyEnabled}
+        <PhotoLogButton variant="inline"
+          mealIdx={pickMode ? (Number(pickMeal) || 0) : null}
+          mealName={pickMode ? (($mealNames || [])[Number(pickMeal) || 0] || 'meal') : ''}
+          date={pickMode ? (pickDate || null) : null} />
+      {/if}
     </div>
   </div>
 
@@ -3197,6 +3206,7 @@
     display: flex;
     align-items: center;
   }
+  .foods-search-input.has-photo-btn { padding-right: 78px; }
   .foods-search-input {
     width: 100%;
     background: var(--surface-2);

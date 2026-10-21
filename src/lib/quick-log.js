@@ -11,6 +11,7 @@
  * gates the feature; `aiEnabled` + a valid `aiApiKey` are required.
  */
 
+import { relevanceScore, aiCandidate, cleanEstimate as _cleanEstimate, GOOD_MATCH } from './food-match.js';
 import { get } from 'svelte/store';
 import { DB } from './db.js';
 import { API, NtApi } from './api.js';
@@ -46,6 +47,12 @@ Rules:
 - Return ONLY valid JSON, no commentary, no markdown fences.
 - Top-level shape: { "meal": <slot name from the list above, or null>, "items": [ ... ] }
 - Each item has: name (string), quantity (number, default 1), unit (string or null), kind ("food" | "meal" | "recipe" | "yesterday" | "water").
+- Food items ALSO have (fork addition):
+  * brand: the brand, restaurant or store named for it ("Costco", "McDonald's", "Chobani"), else null. Keep it OUT of name.
+  * estimate: your best nutrition estimate for the WHOLE stated amount as one object:
+    {"grams": number, "calories": number, "proteins": number, "carbohydrates": number, "fat": number, "fiber": number, "sugars": number, "sodium": number}
+    (sodium in mg, the rest in g). For chain/restaurant items use their published nutrition when you know it.
+    name must be the complete food ("hot dog", not "hot dog bun"); never shorten it to one component.
 
 ITEM KIND — figure out what the user is referring to:
 - "food" (default): a single food, ingredient, or branded product. e.g. "2 eggs", "a slice of toast", "Greek yogurt"
@@ -69,7 +76,10 @@ Other rules:
 
 EXAMPLES:
 Input: "for breakfast I had 2 eggs and toast"
-Output: {"meal":"Breakfast","items":[{"name":"eggs","quantity":2,"unit":null,"kind":"food"},{"name":"toast","quantity":1,"unit":"slice","kind":"food"}]}
+Output: {"meal":"Breakfast","items":[{"name":"eggs","quantity":2,"unit":null,"kind":"food","brand":null,"estimate":{"grams":100,"calories":143,"proteins":12.6,"carbohydrates":0.7,"fat":9.5,"fiber":0,"sugars":0.4,"sodium":142}},{"name":"toast","quantity":1,"unit":"slice","kind":"food","brand":null,"estimate":{"grams":30,"calories":80,"proteins":2.7,"carbohydrates":14,"fat":1,"fiber":0.8,"sugars":1.5,"sodium":150}}]}
+
+Input: "log a Costco hot dog to lunch"
+Output: {"meal":"Lunch","items":[{"name":"hot dog","quantity":1,"unit":null,"kind":"food","brand":"Costco","estimate":{"grams":200,"calories":550,"proteins":24,"carbohydrates":46,"fat":30,"fiber":2,"sugars":8,"sodium":1700}}]}
 
 Input: "for lunch I had my chicken caesar salad meal"
 Output: {"meal":"Lunch","items":[{"name":"chicken caesar salad","quantity":1,"unit":null,"kind":"meal"}]}
@@ -145,6 +155,8 @@ export async function parseInput(text, userMealNames) {
         quantity: Number(it.quantity) > 0 ? Number(it.quantity) : 1,
         unit: it.unit ? String(it.unit).trim() : null,
         kind: VALID_KINDS.has(it.kind) ? it.kind : 'food',
+        brand: it.brand ? String(it.brand).trim().slice(0, 60) : null,
+        estimate: _cleanEstimate(it.estimate),
       }));
     // Meal can be any of the user's slot names (free string, validated downstream)
     const meal = parsed.meal && typeof parsed.meal === 'string' ? parsed.meal.trim() : null;
@@ -259,10 +271,35 @@ export async function matchItems(parsedItems) {
   return Promise.all(parsedItems.map(matchItem));
 }
 
-// ── _matchFood: existing food search (local + OFF) ────────────────────────
+// ── Fork: relevance scoring + AI-estimate fallback ────────────────────────
+// "Costco hot dog" used to match OFF's "Sliced Hot Dog Rolls": every query
+// word appeared in it, but it's a different food (a component). Results now
+// get a relevance score, and when nothing scores well (or a named brand or
+// restaurant isn't in any result) the AI's own estimate becomes the match,
+// with the database hits still offered under "Swap match".
+
+// ── _matchFood: food search (local + OFF), with AI fallback ──────────────
 async function _matchFood(parsedItem) {
+  const out = await _matchFoodDb(parsedItem);
+  const ai = aiCandidate(parsedItem);
+  if (!ai) return out;
+  if (out.source === 'local' && !parsedItem.brand) {
+    out.candidates = [...out.candidates, ai];   // trust your own foods
+    return out;
+  }
+  const scored = out.candidates.map(c => ({ c, s: relevanceScore(parsedItem, c) })).sort((a, b) => b.s - a.s);
+  const top = scored[0];
+  if (!top || top.s < GOOD_MATCH) {
+    return { item: parsedItem, candidates: [ai, ...scored.map(x => x.c)].slice(0, 6), best: ai, source: 'ai' };
+  }
+  out.candidates = [...scored.map(x => x.c), ai].slice(0, 6);
+  if (top.c !== out.best && top.s > relevanceScore(parsedItem, out.best || {}) + 0.15) out.best = top.c;
+  return out;
+}
+
+async function _matchFoodDb(parsedItem) {
   const out = { item: parsedItem, candidates: [], best: null, source: 'unknown' };
-  const query = parsedItem.name;
+  const query = parsedItem.brand ? `${parsedItem.brand} ${parsedItem.name}` : parsedItem.name;
 
   // ── 1. Local foods ──────────────────────────────────────────────────────
   try {
@@ -294,8 +331,8 @@ async function _matchFood(parsedItem) {
         if (eb !== ea) return eb - ea;
         return (a.name || '').length - (b.name || '').length;
       });
-      out.candidates = ranked.slice(0, 8);
-      out.best = ranked[0];
+      out.candidates = ranked.slice(0, 8).map(f => ({ ...f, _source: 'local' }));
+      out.best = out.candidates[0];
       out.source = 'local';
       return out;
     }
@@ -305,9 +342,14 @@ async function _matchFood(parsedItem) {
 
   // ── 2. OFF fallback ─────────────────────────────────────────────────────
   try {
-    const offResults = await API.searchByName(query, 1);
+    let offResults = await API.searchByName(query, 1);
+    // A brand/restaurant the database doesn't know ("Costco") can zero the
+    // search; fall back to the plain food name so there's still something.
+    if ((!Array.isArray(offResults) || !offResults.length) && parsedItem.brand) {
+      offResults = await API.searchByName(parsedItem.name, 1).catch(() => []);
+    }
     if (Array.isArray(offResults) && offResults.length > 0) {
-      out.candidates = offResults.slice(0, 5);
+      out.candidates = offResults.slice(0, 5).map(f => ({ ...f, _source: 'off' }));
       // #241: prefer the first result that has "as sold" values; one without
       // would be logged as 0 kcal. The top result is still the match whenever
       // it has values. Search results leave some values out, so when none
@@ -537,13 +579,14 @@ export async function saveItems(matchedList, { date, defaultMealSlot = 0 }) {
 
     // #241: never save an OFF product with no "as sold" values as 0 kcal. The
     // review row already said it would not be logged.
-    if (m.source === 'off' && !food.id && offNutritionStatus(food, API.offNutritionInfo(food.barcode)) !== 'ok') continue;
+    if (m.source === 'off' && !food._ai && !food.id && offNutritionStatus(food, API.offNutritionInfo(food.barcode)) !== 'ok') continue;
 
     // If the food came from OFF, persist it to the local foods table first so
     // future quick-log calls find it via the local-search fast path.
-    if (m.source === 'off' && !food.id) {
+    if ((m.source === 'off' || m.source === 'ai' || food._ai) && !food.id) {
       try {
-        const created = await NtApi.createFood(food);
+        const { _ai, _source, ...clean } = food;
+        const created = await NtApi.createFood({ ...clean, visibility: 'private' });
         if (created && created.id) food = created;
       } catch (e) {
         console.warn('[quick-log] failed to save OFF food locally:', e.message);
