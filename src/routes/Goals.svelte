@@ -16,6 +16,7 @@
   import { showSuccess } from '../stores/toast.js';
   import MacroRing from '../components/diary/MacroRing.svelte';
   import WeeklyCheckIn from '../components/diary/WeeklyCheckIn.svelte'; // fork: weekly check-in
+  import GoalWeight from '../components/diary/GoalWeight.svelte';       // fork: goal weight + date projection
   import { foldText } from '../lib/search-text.js';
   import { fold } from '../lib/fold.js';
 
@@ -792,6 +793,7 @@
     <div class="goals-main">
 
     {#if activeTab === 'yours'}
+      <GoalWeight />
       <WeeklyCheckIn />
     {/if}
 

@@ -2,6 +2,7 @@
   import FoodIcon from '../components/ui/FoodIcon.svelte'; // fork: emoji for common foods
   import CommonFoodResults from '../components/foods/CommonFoodResults.svelte';
   import RecentFoods from '../components/foods/RecentFoods.svelte'; // fork: recent + frequent before typing
+  import { defaultMealForNow } from '../lib/quick-add.js';           // fork: meal for the one-tap +
   import { searchCommonFoods } from '../lib/common-foods.js';
   import { emojiAtLogTime } from '../lib/food-emoji.js';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -1123,6 +1124,24 @@
     editorState.mealIsRecipe = isRecipe;
     // A pick from CookTrace has no id yet: no "/meal-editor/undefined".
     push(item && item.id != null ? '/meal-editor/' + item.id : '/meal-editor');
+  }
+
+  // Fork: the "+" on Common / Recent / Frequent rows. One tap logs the food to
+  // the meal that fits the time of day (the toast names it). In pick mode a
+  // row already adds to the chosen meal, so "+" does the same. A quantity
+  // prompt still appears when that setting is on.
+  let _quickAdding = false;
+  async function quickAddFood(food, sourceHint) {
+    if (!food) return;
+    if (pickMode) return pickFood(food, sourceHint);
+    if (_quickAdding) return;
+    _quickAdding = true;
+    try {
+      const count = (mealNames.get() || []).length || 4;
+      await onDetailAddToDiary({ detail: { food, meal: defaultMealForNow(count) } });
+    } catch (err) {
+      showError(err?.message || 'Could not add that food');
+    } finally { _quickAdding = false; }
   }
 
   async function pickFood(food, sourceHint) {
@@ -2249,9 +2268,9 @@
     {#if searchSource === 'all'}
       <!-- ── All: merged results from every enabled source ─────────────────── -->
       {#if activeTab === 0 && !search.trim() && !manageMode}
-        <RecentFoods foods={localFoods} on:pick={e => pickFood(e.detail)} />
+        <RecentFoods foods={localFoods} on:pick={e => pickFood(e.detail)} on:add={e => quickAddFood(e.detail)} />
       {/if}
-      <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} />
+      <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} on:add={e => quickAddFood(e.detail, 'common')} />
       {#if !search.trim()}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search</span>
@@ -2410,9 +2429,9 @@
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
       {#if searchSource === 'local'}
         {#if activeTab === 0 && !search.trim() && !manageMode && !activeCategoryFilter}
-          <RecentFoods foods={localFoods} on:pick={e => pickFood(e.detail)} />
+          <RecentFoods foods={localFoods} on:pick={e => pickFood(e.detail)} on:add={e => quickAddFood(e.detail)} />
         {/if}
-        <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} />
+        <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} on:add={e => quickAddFood(e.detail, 'common')} />
       {/if}
       {#if _initialLoading && filteredList.length === 0 && !loadError}
         <!-- #178 — hold the empty state while the initial fetch is in

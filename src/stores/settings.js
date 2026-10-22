@@ -49,7 +49,7 @@ export const USER_PREFS = new Set([
   'statsMetricOrder','statsHiddenMetrics',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
-  'gender','dob','height_cm','weight_kg','target_weight','activity','tdee',
+  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','activity','tdee',
   // Native local-mode profile fields (no auth → no users table; these stand in for
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
@@ -547,6 +547,10 @@ export const foodCategories    = createSettingStore('foodCategories',   []);
 // Fork: renames and emoji choices the user made on logged foods, remembered
 // by the food's original name + brand so later logs of it match.
 export const foodOverrides     = createSettingStore('foodOverrides',     {});
+// Fork: goal weight (kg, same key the setup wizard writes) and an optional
+// date the user wants to be there by ('YYYY-MM-DD', '' = none).
+export const targetWeightKg   = createSettingStore('target_weight',     null);
+export const targetWeightDate = createSettingStore('targetWeightDate',  '');
 foodOverrides.subscribe((v) => setFoodOverrides(v));
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group
