@@ -1,4 +1,5 @@
 <script>
+  import FoodIcon from '../components/ui/FoodIcon.svelte'; // fork: emoji for common foods
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { fold } from '../lib/fold.js';
@@ -2315,8 +2316,8 @@
                     <img class="item-thumb" src={resolveAssetUrl(item.imgUrl)} alt="" loading="lazy"
                       on:error={() => { _brokenThumbs = new Set([..._brokenThumbs, item.imgUrl]); }} />
                   {:else if $diaryShowThumbnails}
-                    <div class="item-thumb-placeholder">
-                      <span class="material-symbols-rounded" style="font-size:18px;color:var(--accent)">restaurant</span>
+                    <div class="item-thumb-placeholder" style="color:var(--accent)">
+                      <FoodIcon name={item.name} icon={item.icon} size={24} />
                     </div>
                   {/if}
                   <div class="item-info">

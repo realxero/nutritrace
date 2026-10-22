@@ -1,4 +1,7 @@
 <script>
+  import FoodIcon from '../components/ui/FoodIcon.svelte'; // fork: emoji for common foods
+  import CommonFoodResults from '../components/foods/CommonFoodResults.svelte';
+  import { searchCommonFoods } from '../lib/common-foods.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { push, location } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -783,6 +786,18 @@
     );
   }
 
+  // Fork: a common food saved earlier = same name, brand USDA.
+  function _existingCommon(food) {
+    if (food?._source !== 'common') return null;
+    const n = String(food.name || '').toLowerCase();
+    return (localFoods || []).find(f => String(f.name || '').toLowerCase() === n && String(f.brand || '') === 'USDA') || null;
+  }
+  $: _savedCommonNames = new Set((localFoods || []).filter(f => f.brand === 'USDA').map(f => String(f.name || '').toLowerCase()));
+  // Fork: built-in USDA common foods, instant + offline, above other results.
+  $: _commonResults = activeTab === 0 && search && search.trim().length >= 2
+      && (searchSource === 'local' || searchSource === 'all')
+      && (pinnedSources.size === 0 || pinnedSources.has('local'))
+    ? searchCommonFoods(search, 8).filter(e => !_savedCommonNames.has(e.name.toLowerCase())).slice(0, 6) : [];
   $: filteredBySearch = search
     ? displayList.filter(f => _fuzzyMatch(f, search))
     : displayList;
@@ -1077,8 +1092,14 @@
     const { addDiaryItem } = await import('../stores/diary.js');
     let savedFood = food;
     if (!food.id || typeof food.id !== 'number') {
-      const { id: _drop, ...rest } = food;
-      savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      // Fork: a built-in common food already in the library is reused,
+      // not saved again on every log.
+      const existing = _existingCommon(food);
+      if (existing) savedFood = { ...existing, portion: food.portion, unit: food.unit, nutrition: existing.nutrition };
+      else {
+        const { id: _drop, _source, _commonId, icon: _icon, ...rest } = food;
+        savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      }
     }
     const item = {
       ...savedFood,
@@ -1265,8 +1286,14 @@
     const { addDiaryItem } = await import('../stores/diary.js');
     let savedFood = food;
     if (!food.id || typeof food.id !== 'number') {
-      const { id: _drop, ...rest } = food;
-      savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      // Fork: a built-in common food already in the library is reused,
+      // not saved again on every log.
+      const existing = _existingCommon(food);
+      if (existing) savedFood = { ...existing, portion: food.portion, unit: food.unit, nutrition: existing.nutrition };
+      else {
+        const { id: _drop, _source, _commonId, icon: _icon, ...rest } = food;
+        savedFood = await NtApi.createFood({ ...rest, created_at: food.dateTime || new Date().toISOString() });
+      }
     }
     const item = {
       ...savedFood,
@@ -2160,6 +2187,7 @@
   <div class="page-content">
     {#if searchSource === 'all'}
       <!-- ── All: merged results from every enabled source ─────────────────── -->
+      <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} />
       {#if !search.trim()}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search</span>
@@ -2170,7 +2198,7 @@
           <span class="material-symbols-rounded spin">refresh</span>
           <span class="text-2 text-sm">{$_('foods.all_mode.searching')}</span>
         </div>
-      {:else if _allModeItems.length === 0}
+      {:else if _allModeItems.length === 0 && _commonResults.length === 0}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
           <p>{$_('foods.all_mode.no_matches', { values: { q: search } })}</p>
@@ -2205,9 +2233,8 @@
                   <img class="food-thumb" src={item.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                 {:else}
                   <div class="food-thumb-placeholder">
-                    <span class="material-symbols-rounded">
-                      {#if isMealie || isCookTrace}menu_book{:else if source === 'usda'}science{:else if source === 'off'}public{:else}{_tabIcon}{/if}
-                    </span>
+                    <FoodIcon name={item.name} icon={item.icon} size={24}
+                      fallback={isMealie || isCookTrace ? 'menu_book' : source === 'usda' ? 'science' : source === 'off' ? 'public' : _tabIcon} />
                   </div>
                 {/if}
                 <div class="food-info">
@@ -2317,6 +2344,9 @@
 
     {:else if searchSource === 'local' || searchSource === 'shared' || (activeTab !== 0 && searchSource !== 'cooktrace')}
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
+      {#if searchSource === 'local'}
+        <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} />
+      {/if}
       {#if _initialLoading && filteredList.length === 0 && !loadError}
         <!-- #178 — hold the empty state while the initial fetch is in
              flight. A slow /api/foods response would otherwise render
@@ -2338,7 +2368,7 @@
             Add {TABS[activeTab].label.slice(0,-1)}
           </button>
         </div>
-      {:else if filteredList.length === 0 && search}
+      {:else if filteredList.length === 0 && search && _commonResults.length === 0}
         <div class="empty-state">
           <span class="material-symbols-rounded empty-icon">search_off</span>
           <p>No matches for "{search}"</p>
@@ -2383,7 +2413,7 @@
                   <img class="food-thumb" src={food.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                 {:else}
                   <div class="food-thumb-placeholder">
-                    <span class="material-symbols-rounded">{_tabIcon}</span>
+                    {#if activeTab === 0}<FoodIcon name={food.name} icon={food.icon} size={24} fallback={_tabIcon} />{:else}<span class="material-symbols-rounded">{_tabIcon}</span>{/if}
                   </div>
                 {/if}
                 <div class="food-info">
@@ -2482,7 +2512,7 @@
                     <img class="food-thumb" src={food.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                   {:else}
                     <div class="food-thumb-placeholder">
-                      <span class="material-symbols-rounded">{searchSource === 'usda' ? 'science' : 'public'}</span>
+                      <FoodIcon name={food.name} icon={food.icon} size={24} fallback={searchSource === 'usda' ? 'science' : 'public'} />
                     </div>
                   {/if}
                   <div class="food-info">

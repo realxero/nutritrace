@@ -654,6 +654,29 @@
             };
           }
           // Tier 2: Open Food Facts (uses local mirror if admin enabled it).
+          // Fork: built-in USDA common foods ("banana", "egg", "white rice")
+          // before Open Food Facts: verified numbers, everyday portions, no
+          // network. Only a clear name match; anything else carries on below.
+          try {
+            const { searchCommonFoodsScored, commonFoodToFood } = await import('../../lib/common-foods.js');
+            const hit = searchCommonFoodsScored(foodQuery, 1)[0];
+            if (hit && hit.score >= 85) {
+              const cf = commonFoodToFood(hit.entry);
+              let saved = (localFoods || []).find(f => _norm(f.name) === _norm(cf.name) && f.brand === 'USDA');
+              if (!saved) {
+                const { _source, _commonId, icon, ...rest } = cf;
+                saved = await NtApi.createFood({ ...rest, created_at: new Date().toISOString() });
+              }
+              const built = _buildAiDiaryItem(saved, portionOverride, unitOverride, quantity, { expectedKcal: args?.expected_kcal });
+              if (built.error) return { error: built.error };
+              const { item, kcal, warnings } = built;
+              const { addDiaryItem } = await import('../../stores/diary.js');
+              await addDiaryItem(item, mealIdx, date);
+              return { ok: true, date, meal: mealIdx, meal_name: mealName, food_name: saved.name, portion: item.portion, unit: item.unit, quantity, kcal, source: 'usda-common', ...(warnings.length ? { warnings } : {}) };
+            }
+          } catch (e) {
+            console.warn('[trace] common foods lookup failed:', e?.message || e);
+          }
           let offHits = [];
           try {
             const { API } = await import('../../lib/api.js');

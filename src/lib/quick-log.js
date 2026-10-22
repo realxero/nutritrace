@@ -288,7 +288,7 @@ async function _matchFood(parsedItem) {
   const out = await _matchFoodDb(parsedItem);
   const ai = aiCandidate(parsedItem);
   if (!ai) return out;
-  if (out.source === 'local' && !parsedItem.brand) {
+  if ((out.source === 'local' || out.source === 'common') && !parsedItem.brand) {
     out.candidates = [...out.candidates, ai];   // trust your own foods
     return out;
   }
@@ -343,6 +343,23 @@ async function _matchFoodDb(parsedItem) {
     }
   } catch (e) {
     console.warn('[quick-log] local food search failed:', e.message);
+  }
+
+  // Fork: built-in USDA common foods — plain names ("banana", "2 eggs",
+  // "cup of rice") match here instantly and offline, before the network.
+  if (!parsedItem.brand) {
+    try {
+      const { searchCommonFoodsScored, commonFoodToFood } = await import('./common-foods.js');
+      const hits = searchCommonFoodsScored(parsedItem.name, 4).filter(h => h.score >= 65);
+      if (hits.length) {
+        out.candidates = hits.map(h => commonFoodToFood(h.entry));
+        out.best = out.candidates[0];
+        out.source = 'common';
+        return out;
+      }
+    } catch (e) {
+      console.warn('[quick-log] common foods failed:', e.message);
+    }
   }
 
   // ── 2. OFF fallback ─────────────────────────────────────────────────────
