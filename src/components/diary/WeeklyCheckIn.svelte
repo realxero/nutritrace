@@ -9,11 +9,14 @@
   import { localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
   import { summarizeWeek, verdictText } from '../../lib/weekly-checkin.js';
-  import { energyUnit, weightUnit } from '../../stores/settings.js';
+  import { projectFromAdaptive, suggestAdjustment, adjustmentText } from '../../lib/goal-projection.js';
+  import { DB } from '../../lib/db.js';
+  import { energyUnit, weightUnit, goals, smartSuggestions, targetWeightKg, targetWeightDate } from '../../stores/settings.js';
 
   let loading = true;
   let failed = false;
   let s = null;
+  let adaptiveRaw = null;
 
   const kgOut = (kg) => $weightUnit === 'kg' ? kg : kg * 2.20462;
   const wFmt = (kg) => {
@@ -38,10 +41,24 @@
         const items = (e && e.items) || [];
         return items.length ? Math.round(Nutrition.sum(items.map(i => Nutrition.calculate(i))).calories || 0) : null;
       });
+      adaptiveRaw = adaptive;
       s = summarizeWeek({ dayCalories, adaptive });
     } catch { failed = true; }
     loading = false;
   }
+  // Fork: with a goal date set, say what the date needs compared with recent eating.
+  $: adj = ($smartSuggestions && $targetWeightKg && $targetWeightDate && adaptiveRaw)
+    ? (() => {
+        const { result } = projectFromAdaptive({
+          adaptive: adaptiveRaw, targetKg: $targetWeightKg, targetDate: $targetWeightDate,
+          plannedIntake: $goals?.calories?.max ?? null,
+          profileKg: Number(DB.getSetting('weight_kg', 0)) || null, profileTdee: Number(DB.getSetting('tdee', 0)) || null,
+          today: localDateStr(),
+        });
+        return suggestAdjustment(result, adaptiveRaw.recentAvgIntake, adaptiveRaw.recentLoggedDays);
+      })()
+    : null;
+  const dateLabel = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
   onMount(load);
 </script>
 
@@ -62,6 +79,9 @@
       <div class="wk-cell"><div class="wk-num">{s.trendKgPerWeek != null ? wFmt(s.trendKgPerWeek) : '—'}</div><div class="wk-lab">weight trend</div></div>
     </div>
     <p class="wk-verdict" data-verdict={s.verdict}>{verdictText(s.verdict)}</p>
+    {#if adj}
+      <p class="wk-adjust" data-kind={adj.kind} data-testid="weekly-adjustment">{adjustmentText(adj, dateLabel($targetWeightDate))}</p>
+    {/if}
     {#if s.verdict === 'building' && s.daysAvailable != null}
       <p class="text-3 text-sm" style="margin:4px 0 0">{s.daysAvailable} of {s.daysRequired} days of data so far.</p>
     {/if}
@@ -78,5 +98,7 @@
   .wk-num { font-size: 18px; font-weight: 700; }
   .wk-lab { font-size: 12px; color: var(--text-3); }
   .wk-verdict { margin: 12px 0 0; font-size: 14px; line-height: 1.4; }
+  .wk-adjust { margin: 10px 0 0; padding: 10px 12px; font-size: 14px; line-height: 1.4; border-radius: var(--radius-sm); background: var(--accent-dim); }
+  .wk-adjust[data-kind='too-soon'] { background: rgba(234, 179, 8, .15); }
   .wk-link { background: none; border: 0; color: var(--accent); font-weight: 600; padding: 0; }
 </style>

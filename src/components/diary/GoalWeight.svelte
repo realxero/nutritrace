@@ -12,7 +12,7 @@
   import { DB, localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
   import { parseDecimal, decimalInput } from '../../lib/decimal-input.js';
-  import { projectGoal, statusText, daysBetween } from '../../lib/goal-projection.js';
+  import { projectFromAdaptive, statusText, daysBetween } from '../../lib/goal-projection.js';
   import { goals, energyUnit, weightUnit, targetWeightKg, targetWeightDate } from '../../stores/settings.js';
   import DateInput from '../ui/DateInput.svelte';
 
@@ -44,19 +44,15 @@
 
   // Current weight: smoothed trend → latest reading → the profile weight.
   $: profileKg = Number(DB.getSetting('weight_kg', 0)) || null;
-  $: currentKg = adaptive?.trendWeightKg ?? adaptive?.latestWeightKg ?? profileKg;
-  $: weightFrom = adaptive?.trendWeightKg != null ? 'trend' : adaptive?.latestWeightKg != null ? 'latest' : 'profile';
   $: profileTdee = Number(DB.getSetting('tdee', 0)) || null;
-  $: tdee = adaptive?.ready && adaptive.tdee != null ? adaptive.tdee : profileTdee;
-  $: plannedIntake = $goals?.calories?.max ?? null;
   $: today = localDateStr();
-  $: r = projectGoal({
-    currentKg, targetKg: Number($targetWeightKg) || null,
-    tdee, tdeeIsAdaptive: !!(adaptive?.ready && adaptive.tdee != null),
-    avgIntake: adaptive?.recentAvgIntake ?? null, loggedDays: adaptive?.recentLoggedDays ?? 0,
-    trendKgPerWeek: adaptive?.ready ? adaptive.trendKgPerWeek : null,
-    plannedIntake, targetDate: $targetWeightDate || null, today,
+  $: proj = projectFromAdaptive({
+    adaptive, targetKg: $targetWeightKg, targetDate: $targetWeightDate, plannedIntake: $goals?.calories?.max ?? null,
+    profileKg, profileTdee, today,
   });
+  $: r = proj.result;
+  $: currentKg = proj.currentKg;
+  $: weightFrom = proj.weightFrom;
 
   function startEdit() {
     wInput = $targetWeightKg ? String(Math.round(toDisp($targetWeightKg) * 10) / 10) : '';

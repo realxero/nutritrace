@@ -49,7 +49,7 @@ export const USER_PREFS = new Set([
   'statsMetricOrder','statsHiddenMetrics',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
-  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','activity','tdee',
+  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','activity','tdee',
   // Native local-mode profile fields (no auth → no users table; these stand in for
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
@@ -551,6 +551,14 @@ export const foodOverrides     = createSettingStore('foodOverrides',     {});
 // date the user wants to be there by ('YYYY-MM-DD', '' = none).
 export const targetWeightKg   = createSettingStore('target_weight',     null);
 export const targetWeightDate = createSettingStore('targetWeightDate',  '');
+// Fork: proactive suggestions (drink swaps, protein ideas, weekly calorie
+// adjustment). One master switch, plus one per kind. On by default; off
+// removes every suggestion from Diary and the weekly check-in.
+export const smartSuggestions  = createSettingStore('smartSuggestions',  true);
+export const suggestSwaps      = createSettingStore('suggestSwaps',      true);
+export const suggestProtein    = createSettingStore('suggestProtein',    true);
+// { 'YYYY-MM-DD': [suggestion ids the user hid that day] }, pruned to 14 days.
+export const dismissedSuggestions = createSettingStore('dismissedSuggestions', {});
 foodOverrides.subscribe((v) => setFoodOverrides(v));
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group

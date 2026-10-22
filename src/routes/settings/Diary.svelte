@@ -12,6 +12,7 @@
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     showQuickCalories, quickCaloriesDisplay,
     diaryShowNutritionBar,
+    smartSuggestions, suggestSwaps, suggestProtein,
     diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
     diaryRailShowActivity as diaryRailShowActivityWidget,
     diaryRailShowNotes,
@@ -98,6 +99,21 @@
     </SettingRow>
     <SettingRow label={$_('settings_diary.show_portion')} desc={$_('settings_diary.show_portion_desc')}>
       <Toggle checked={$diaryShowPortionSize} on:change={e => diaryShowPortionSize.set(e.detail)} />
+    </SettingRow>
+  </div>
+
+  <!-- Group: Smart suggestions (fork) -->
+  <p class="settings-group-heading">Smart Suggestions</p>
+  <p class="settings-group-sub">Ideas based on what you have logged, for today and for days you are planning. Each one can be ignored.</p>
+  <div class="card settings-card" data-testid="settings-suggestions">
+    <SettingRow label="Smart suggestions" desc="Show suggestions on the diary and a calorie adjustment in the weekly check-in." divider={false}>
+      <Toggle checked={$smartSuggestions} on:change={e => smartSuggestions.set(e.detail)} />
+    </SettingRow>
+    <SettingRow label="Drink swaps" desc="Offer a zero-sugar version of a full-sugar drink, with what it saves.">
+      <Toggle checked={$suggestSwaps} disabled={!$smartSuggestions} on:change={e => suggestSwaps.set(e.detail)} />
+    </SettingRow>
+    <SettingRow label="Protein ideas" desc="When protein is behind your goal, suggest foods that fit the calories you have left.">
+      <Toggle checked={$suggestProtein} disabled={!$smartSuggestions} on:change={e => suggestProtein.set(e.detail)} />
     </SettingRow>
   </div>
 

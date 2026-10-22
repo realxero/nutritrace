@@ -173,3 +173,57 @@ export function statusText(r, { weightLabel = (kg) => `${kg} kg` } = {}) {
     default:            return '';
   }
 }
+
+/**
+ * The one place that turns the /api/goals/adaptive-tdee response and the
+ * user's settings into projectGoal() inputs, so the Goal weight card and the
+ * weekly check-in always agree.
+ */
+export function projectFromAdaptive({ adaptive = null, targetKg = null, targetDate = null, plannedIntake = null,
+  profileKg = null, profileTdee = null, today } = {}) {
+  const adaptiveReady = !!(adaptive && adaptive.ready && adaptive.tdee != null);
+  const currentKg = adaptive?.trendWeightKg ?? adaptive?.latestWeightKg ?? profileKg ?? null;
+  const weightFrom = adaptive?.trendWeightKg != null ? 'trend' : adaptive?.latestWeightKg != null ? 'latest' : 'profile';
+  const result = projectGoal({
+    currentKg, targetKg: Number(targetKg) || null,
+    tdee: adaptiveReady ? adaptive.tdee : profileTdee, tdeeIsAdaptive: adaptiveReady,
+    avgIntake: adaptive?.recentAvgIntake ?? null, loggedDays: adaptive?.recentLoggedDays ?? 0,
+    trendKgPerWeek: adaptiveReady ? adaptive.trendKgPerWeek : null,
+    plannedIntake, targetDate: targetDate || null, today,
+  });
+  return { result, currentKg, weightFrom };
+}
+
+const nearest50 = (n) => Math.round(n / 50) * 50;
+
+/**
+ * A calorie adjustment for the weekly check-in, only when a goal DATE is set
+ * (the date is the user's own target, so the number follows from it).
+ * Compares the recent average intake with what the date needs.
+ *
+ * @returns {null | {kind:'on-track'|'less'|'more'|'too-soon', deltaKcal:number, kcalPerDay:number|null}}
+ */
+export function suggestAdjustment(result, avgIntake, loggedDays = 0) {
+  const req = result?.required;
+  if (!req || req.past || req.kcalPerDay == null || !Number.isFinite(avgIntake) || loggedDays < MIN_LOGGED_DAYS) return null;
+  if (req.belowFloor) return { kind: 'too-soon', deltaKcal: 0, kcalPerDay: req.kcalPerDay };
+  // What you would change today: + means eat less (losing) / eat more (gaining).
+  const losing = result.direction === 'lose';
+  const delta = losing ? avgIntake - req.kcalPerDay : req.kcalPerDay - avgIntake;
+  if (Math.abs(delta) <= 100) return { kind: 'on-track', deltaKcal: 0, kcalPerDay: req.kcalPerDay };
+  if (delta > 0) return { kind: losing ? 'less' : 'more', deltaKcal: nearest50(delta), kcalPerDay: req.kcalPerDay };
+  // Eating on the slow side of what the date needs: room to spare when losing.
+  return { kind: losing ? 'more' : 'less', deltaKcal: nearest50(-delta), kcalPerDay: req.kcalPerDay };
+}
+
+/** Plain-language line for an adjustment. Offers; never insists. */
+export function adjustmentText(adj, dateLabel = 'your date') {
+  if (!adj) return '';
+  const n = adj.deltaKcal.toLocaleString();
+  switch (adj.kind) {
+    case 'on-track': return `Your recent intake fits ${dateLabel}. No change needed.`;
+    case 'too-soon': return `${dateLabel} would need a very low intake. A later date is the kinder fix.`;
+    case 'less':     return `To reach ${dateLabel}, about ${n} kcal a day less than your recent average would do it.`;
+    default:         return `You could eat about ${n} kcal a day more than your recent average and still reach ${dateLabel}.`;
+  }
+}

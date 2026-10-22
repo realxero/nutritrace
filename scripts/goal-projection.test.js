@@ -110,3 +110,48 @@ test('very slow pace is reported as far away, not a silly date', () => {
   assert.ok(['far-away', 'ok'].includes(r.status));
   if (r.status === 'far-away') assert.equal(r.earliest, null);
 });
+
+import { projectFromAdaptive, suggestAdjustment, adjustmentText } from '../src/lib/goal-projection.js';
+
+const adaptive = { ready: true, tdee: 2800, trendKgPerWeek: -0.45, trendWeightKg: 90, recentAvgIntake: 2300, recentLoggedDays: 12 };
+
+test('projectFromAdaptive matches projectGoal and names the weight source', () => {
+  const { result, currentKg, weightFrom } = projectFromAdaptive({ adaptive, targetKg: 80, today });
+  assert.equal(currentKg, 90);
+  assert.equal(weightFrom, 'trend');
+  assert.equal(result.status, 'ok');
+  const p = projectFromAdaptive({ adaptive: null, targetKg: 80, profileKg: 91, profileTdee: 2800, plannedIntake: 2300, today });
+  assert.equal(p.weightFrom, 'profile');
+  assert.equal(p.result.basis, 'plan');
+});
+
+test('adjustment: eat less when behind a date, more when well ahead, none without a date', () => {
+  const adj = (days, intake = 2300) => {
+    const { result } = projectFromAdaptive({ adaptive: { ...adaptive, recentAvgIntake: intake }, targetKg: 80, targetDate: addDays(today, days), today });
+    return suggestAdjustment(result, intake, 12);
+  };
+  const behind = adj(240);              // needs ~ -320 kcal; eating -500: room to spare
+  assert.equal(behind.kind, 'more');
+  const tight = adj(120);               // needs ~ -640
+  assert.equal(tight.kind, 'less');
+  assert.equal(tight.deltaKcal % 50, 0);
+  assert.equal(adj(156).kind, 'on-track');
+  const { result } = projectFromAdaptive({ adaptive, targetKg: 80, today });
+  assert.equal(suggestAdjustment(result, 2300, 12), null);
+});
+
+test('adjustment: a date that needs a very low intake is flagged, not chased', () => {
+  const { result } = projectFromAdaptive({ adaptive, targetKg: 80, targetDate: addDays(today, 30), today });
+  assert.equal(suggestAdjustment(result, 2300, 12).kind, 'too-soon');
+});
+
+test('adjustment needs enough logged days', () => {
+  const { result } = projectFromAdaptive({ adaptive, targetKg: 80, targetDate: addDays(today, 120), today });
+  assert.equal(suggestAdjustment(result, 2300, 2), null);
+});
+
+test('adjustment text', () => {
+  assert.match(adjustmentText({ kind: 'less', deltaKcal: 300 }, 'Mar 3'), /300 kcal a day less/);
+  assert.match(adjustmentText({ kind: 'more', deltaKcal: 150 }, 'Mar 3'), /150 kcal a day more/);
+  assert.equal(adjustmentText(null), '');
+});

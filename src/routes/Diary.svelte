@@ -15,6 +15,7 @@
 
   import MacroRing    from '../components/diary/MacroRing.svelte';
   import DaySummaryWidget from '../components/diary/DaySummaryWidget.svelte';
+  import SuggestionsCard from '../components/diary/SuggestionsCard.svelte'; // fork: swaps + protein ideas
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
   import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
   import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
@@ -2239,6 +2240,9 @@
     {#if $fastingEnabled}
       <FastingWidget />
     {/if}
+    <!-- Fork: proactive suggestions (drink swaps, protein ideas); Settings → Diary → Smart Suggestions -->
+    <SuggestionsCard date={$currentDate} items={entry.items || []} completed={_dayIsComplete}
+      calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} />
     <!-- Meal groups. Rendered via a Svelte 5 snippet `mealCard` so we
          can consume it twice below — once per column (mealsLeft +
          mealsRight) — without duplicating ~230 lines of card markup.
