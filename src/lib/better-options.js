@@ -19,7 +19,7 @@
  * the zero-sugar swap rules. Anything outside a family is left to the AI.
  */
 import { COMMON_FOODS, commonFoodToFood, searchCommonFoodsScored } from './common-foods.js';
-import { itemTotals, findSwaps, isMuted } from './suggestions.js';
+import { itemTotals, dayTotals, findSwaps, isMuted } from './suggestions.js';
 
 const r0 = (n) => Math.round(n);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -194,4 +194,22 @@ export function findBetterOptions(item, { focus = 'balanced', saved = [], muted 
   }
   out.sort((a, b) => b.score - a.score);
   return { kind: out.length ? 'family' : 'none', options: out.slice(0, limit), category: fams[0] };
+}
+
+/**
+ * What is left today and what the user is aiming for, shared by the sheets that ask the AI.
+ * `limitFor` is passed in (it lives in day-suggestions.js, which imports this file).
+ */
+export function dayContext({ items = [], calorieGoal = null, proteinGoal = null, targetKg = null, currentKg = null, limits = {}, limitFor = () => null } = {}) {
+  const totals = dayTotals(items);
+  const remaining = {
+    calories: calorieGoal > 0 ? calorieGoal - totals.calories : NaN,
+    protein: proteinGoal > 0 ? proteinGoal - totals.proteins : NaN,
+  };
+  const over = ['sodium', 'saturated-fat', 'fat', 'sugars'].find(n => {
+    const lim = limitFor(n, limits);
+    return lim && totals[n] >= lim.value;
+  }) || null;
+  const focus = goalFocus({ targetKg, currentKg, over, proteinGap: Number.isFinite(remaining.protein) ? remaining.protein : 0 });
+  return { totals, remaining, over, focus };
 }

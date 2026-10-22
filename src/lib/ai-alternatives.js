@@ -42,7 +42,7 @@ export function buildAltPrompt({ item, focusLabel, remaining = {}, avoid = [], c
   return lines.join('\n');
 }
 
-function parseJson(text) {
+export function parseJson(text) {
   const s = String(text || '').replace(/```(?:json)?/gi, '').trim();
   const a = s.indexOf('{'), b = s.lastIndexOf('}');
   if (a < 0 || b <= a) throw new Error("Trace didn't return any options. Try again.");
@@ -79,27 +79,31 @@ export function parseAlternatives(reply, { avoid = [], originalName = '' } = {})
   return out;
 }
 
-/** Ask the configured AI. `webSearch` only does anything on Gemini. */
-export async function askForAlternatives({ item, focusLabel, remaining, avoid = [], webSearch = true, country = '' }) {
+/**
+ * One text request to the user's configured AI (own key, or the server proxy when
+ * env-locked). `webSearch` only does anything on Gemini; keys that can't search retry without it.
+ */
+export async function runAi({ messages, systemPrompt, webSearch = false }) {
   const { aiProvider, aiModel, aiBaseUrl, aiApiKey, envLocks } = await import('../stores/settings.js');
   const { callAI, callAIProxy } = await import('./aiChat.js');
   const get = (s) => { let v; s.subscribe(x => (v = x))(); return v; };
   const provider = get(aiProvider) || 'claude';
-  const messages = [{ role: 'user', content: buildAltPrompt({ item, focusLabel, remaining, avoid, country }) }];
-  let reply;
-  if (get(envLocks)?.ai) {
-    reply = await callAIProxy({ messages, systemPrompt: ALT_SYSTEM_PROMPT, tools: [] });
-  } else {
-    const apiKey = get(aiApiKey);
-    if (!apiKey && provider !== 'oai-compat') throw new Error('Add your AI key in Settings → AI Assistant');
-    const args = { provider, apiKey, model: get(aiModel) || undefined, baseUrl: get(aiBaseUrl) || undefined, messages, systemPrompt: ALT_SYSTEM_PROMPT, tools: [] };
-    try {
-      reply = await callAI({ ...args, webSearch: !!webSearch && provider === 'gemini' });
-    } catch (e) {
-      if (!webSearch || provider !== 'gemini') throw e;   // some keys can't search: retry without it
-      reply = await callAI(args);
-    }
+  if (get(envLocks)?.ai) return callAIProxy({ messages, systemPrompt, tools: [] });
+  const apiKey = get(aiApiKey);
+  if (!apiKey && provider !== 'oai-compat') throw new Error('Add your AI key in Settings → AI Assistant');
+  const args = { provider, apiKey, model: get(aiModel) || undefined, baseUrl: get(aiBaseUrl) || undefined, messages, systemPrompt, tools: [] };
+  try {
+    return await callAI({ ...args, webSearch: !!webSearch && provider === 'gemini' });
+  } catch (e) {
+    if (!webSearch || provider !== 'gemini') throw e;   // some keys can't search: retry without it
+    return callAI(args);
   }
+}
+
+/** Ask the configured AI for alternatives to one food. */
+export async function askForAlternatives({ item, focusLabel, remaining, avoid = [], webSearch = true, country = '' }) {
+  const messages = [{ role: 'user', content: buildAltPrompt({ item, focusLabel, remaining, avoid, country }) }];
+  const reply = await runAi({ messages, systemPrompt: ALT_SYSTEM_PROMPT, webSearch });
   return parseAlternatives(reply, { avoid, originalName: item?.name });
 }
 

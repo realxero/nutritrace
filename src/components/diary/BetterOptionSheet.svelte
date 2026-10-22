@@ -18,6 +18,7 @@
   import { DB } from '../../lib/db.js';
   import Sheet from '../ui/Sheet.svelte';
   import Spinner from '../ui/Spinner.svelte';
+  import RestaurantOptions from './RestaurantOptions.svelte';
   import FoodIcon from '../ui/FoodIcon.svelte';
   import { dayTotals, itemTotals, mutedKey } from '../../lib/suggestions.js';
   import { findBetterOptions, goalFocus, FOCUS_LABEL } from '../../lib/better-options.js';
@@ -44,11 +45,13 @@
   let ai = { state: 'idle', list: [], error: '' };   // idle | loading | done | error
   let busy = '';
   let loadedFor = null;
+  let showResto = false;
 
   // Load what the options need once per opening.
   $: if (open && item && loadedFor !== item) {
     loadedFor = item;
     focusPick = '';
+    showResto = false;
     ai = { state: 'idle', list: [], error: '' };
     (async () => {
       try { saved = await NtApi.getFoods(); } catch { saved = []; }
@@ -192,6 +195,18 @@
           <button type="button" class="bo-link" on:click={findReal}>Ask again</button>
         {/if}
         <button type="button" class="bo-link" on:click={askInChat} data-testid="ask-in-chat">Ask Trace in the chat instead</button>
+      {/if}
+
+      {#if $aiEffectivelyEnabled}
+        <h3 class="bo-h">At a restaurant?</h3>
+        {#if !showResto}
+          <button type="button" class="btn btn-secondary w-full" on:click={() => (showResto = true)} data-testid="open-restaurant">
+            <span class="material-symbols-rounded" style="font-size:18px" aria-hidden="true">restaurant_menu</span> Find options on a menu
+          </button>
+        {:else}
+          <RestaurantOptions {items} {date} original={item} focusKey={focus} {calorieGoal} {proteinGoal} {limits} {currentKg}
+            restaurantStart={item.brand && item.brand !== 'USDA' ? item.brand : ''} on:done={() => (open = false)} />
+        {/if}
       {/if}
 
       <button type="button" class="bo-never" on:click={neverFor} data-testid="never-for-food">Never suggest changes for {item.name}</button>

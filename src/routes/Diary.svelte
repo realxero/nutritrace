@@ -17,6 +17,7 @@
   import DaySummaryWidget from '../components/diary/DaySummaryWidget.svelte';
   import SuggestionsCard from '../components/diary/SuggestionsCard.svelte'; // fork: swaps + protein ideas
   import BetterOptionSheet from '../components/diary/BetterOptionSheet.svelte'; // fork: on-demand better option
+  import RestaurantSheet from '../components/diary/RestaurantSheet.svelte';     // fork: eating out, menu options via Trace
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
   import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
   import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
@@ -1660,6 +1661,8 @@
   // whether or not Smart Suggestions are switched on.
   let showBetter = false;
   let betterItem = null;
+  let showRestaurant = false;
+  let restoMeal = null;
   function openBetter(item) {
     if (!item || item.type === 'quick_calories') return;
     betterItem = item;
@@ -3225,15 +3228,18 @@
     bind:open={showMealAction}
     title={meals[actionMealIdx] + (_hasItems ? ` · ${_mealItems.length} item${_mealItems.length === 1 ? '' : 's'}` : ' · empty')}
     actions={_hasItems ? [
+      { label: 'Eating out…',    icon: 'restaurant_menu', value: 'restaurant' },
       { label: 'Move Items to…', icon: 'swap_horiz',   value: 'move'      },
       { label: 'Copy',           icon: 'content_copy', value: 'copy_to'   },
       { label: 'Save as Meal…',  icon: 'bookmark_add', value: 'save_meal' },
       { label: 'Clear All Items', icon: 'delete_sweep', value: 'clear', danger: true },
     ] : [
       { label: 'Add Food', icon: 'add', value: 'add' },
+      { label: 'Eating out…', icon: 'restaurant_menu', value: 'restaurant' },
     ]}
     on:select={(e) => {
       if (e.detail?.value === 'add') openAddFood(actionMealIdx);
+      else if (e.detail?.value === 'restaurant') { restoMeal = actionMealIdx; _lockAndOpen(() => showRestaurant = true); }
       else onMealAction(e);
     }}
   />
@@ -3574,6 +3580,9 @@
 <AddActivitySheet bind:open={showActivitySheet} date={$currentDate} entry={editingActivity} on:close={() => editingActivity = null} />
 
 <QuickCaloriesSheet bind:open={_quickSheetOpen} meal={_quickSheetMeal} mealName={meals[_quickSheetMeal] || ''} />
+
+<RestaurantSheet bind:open={showRestaurant} meal={restoMeal} items={entry.items || []} date={$currentDate}
+  calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />
 
 <BetterOptionSheet bind:open={showBetter} item={betterItem} items={entry.items || []} date={$currentDate}
   calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />
