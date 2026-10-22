@@ -2,8 +2,9 @@
   import { _ } from 'svelte-i18n';
   import {
     calorieGoalMode, calorieGoalFactor,
-    fitbitFamilyEnabled, garminEnabled,
+    fitbitFamilyEnabled, garminEnabled, showProgress, showPatterns,
   } from '../../stores/settings.js';
+  import Toggle from '../../components/settings/Toggle.svelte';
 
   // Mirror the parent-shell derivation: any wearable that reports calorie burn
   // unlocks Dynamic mode. Uses the shared derived fitbitFamilyEnabled so adding
@@ -69,5 +70,20 @@
         {$_('settings_goals.adaptive_note')} <a href="https://github.com/TraceApps/nutritrace#adaptive-tdee" target="_blank" rel="noopener" class="about-link">{$_('settings_goals.how_it_works')}</a>
       </p>
     {/if}
+  </div>
+
+  <!-- Fork: Progress & patterns on the Goals page -->
+  <p class="settings-group-heading">Progress &amp; Patterns</p>
+  <p class="settings-group-sub">Streaks, milestones and a timeline, and habits found in your own diary.</p>
+  <div class="card settings-card" data-testid="settings-progress">
+    <div class="setting-row">
+      <div><span class="setting-label">Progress &amp; celebrations</span><div class="setting-desc">Streaks, milestones (with something familiar to picture each one) and achievements, with a note the first time you reach one.</div></div>
+      <Toggle checked={$showProgress} on:change={e => showProgress.set(e.detail)} />
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-row">
+      <div><span class="setting-label">Patterns I've noticed</span><div class="setting-desc">For example, days you eat a certain food tend to run lighter or heavier. Only shown when the pattern is clear, and needs Smart Suggestions on.</div></div>
+      <Toggle checked={$showPatterns} on:change={e => showPatterns.set(e.detail)} />
+    </div>
   </div>
 </div>

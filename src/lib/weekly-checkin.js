@@ -48,3 +48,22 @@ export function verdictText(v) {
     default:        return 'Nothing logged in the last 7 days.';
   }
 }
+
+/**
+ * Sodium and fiber over the same week (fork). Averages use only days with food logged,
+ * and a limit is the user's goal when set, else the standard daily value.
+ *   days: [{ sodium, fiber, logged }] one per day; logged = something was logged that day
+ * Describes; never prescribes.
+ */
+export function summarizeNutrients({ days = [], sodiumLimit = 2300, fiberTarget = 28 } = {}) {
+  const logged = days.filter(d => d && d.logged);
+  const n = logged.length;
+  const empty = { loggedDays: n, sodiumAvg: null, sodiumDaysOver: 0, fiberAvg: null, fiberDaysUnder: 0, sodiumLimit, fiberTarget };
+  if (n < MIN_LOGGED_DAYS) return empty;
+  const avg = (k) => Math.round(logged.reduce((a, d) => a + (Number(d[k]) || 0), 0) / n);
+  return {
+    ...empty,
+    sodiumAvg: avg('sodium'), sodiumDaysOver: logged.filter(d => (Number(d.sodium) || 0) > sodiumLimit).length,
+    fiberAvg: avg('fiber'), fiberDaysUnder: logged.filter(d => (Number(d.fiber) || 0) < fiberTarget).length,
+  };
+}

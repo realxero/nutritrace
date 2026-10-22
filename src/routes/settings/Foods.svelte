@@ -10,7 +10,11 @@
     dietType, foodAllergens, foodAvoid, foodDislikes,
   } from '../../stores/settings.js';
   import TagListEditor from '../../components/settings/TagListEditor.svelte';
-  import { ALLERGENS, DIETS, SAFETY_NOTE } from '../../lib/food-safety.js';
+  import { ALLERGENS, DIETS, SAFETY_NOTE, COMMON_DISLIKES, explainFood, REASON_TEXT } from '../../lib/food-safety.js';
+  import { foodPrefs } from '../../stores/settings.js';
+  let testText = '';
+  $: test = explainFood(testText, $foodPrefs);
+  $: dislikeChips = COMMON_DISLIKES.filter(c => !($foodDislikes || []).some(d => d.toLowerCase() === c.toLowerCase()));
   const toggleAllergen = (id) => foodAllergens.set(($foodAllergens || []).includes(id) ? $foodAllergens.filter(x => x !== id) : [...($foodAllergens || []), id]);
   import { DB } from '../../lib/db.js';
   // Mealie is a plain localStorage flag (not a store), unlike OFF/USDA.
@@ -49,6 +53,24 @@
       <div class="setting-label">Foods I don't like</div>
       <div class="setting-desc">Never suggested. They are still fine to log.</div>
       <TagListEditor list={$foodDislikes} placeholder="Add a food you dislike" on:change={e => foodDislikes.set(e.detail)} />
+      {#if dislikeChips.length}
+        <div class="pref-chips pref-quick" aria-label="Common dislikes">
+          {#each dislikeChips as c}<button type="button" class="pref-chip" on:click={() => foodDislikes.set([...($foodDislikes || []), c])}>+ {c}</button>{/each}
+        </div>
+      {/if}
+      <div class="setting-desc" style="margin-top:8px">Words match whole words, ignore plurals and know common synonyms (cilantro = coriander) and groups (seafood, red meat, spicy, nuts).</div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="pref-block" data-testid="food-test">
+      <div class="setting-label">Test a food</div>
+      <div class="setting-desc">Type any food or dish name to see whether suggestions would keep it out, and why.</div>
+      <input class="input pref-test-input" type="text" bind:value={testText} maxlength="80" placeholder="e.g. Pad Thai, chicken caesar salad" aria-label="Food to test" />
+      {#if test}
+        <p class="pref-test-result" class:blocked={!test.ok} role="status">
+          {#if test.ok}Not blocked by your settings. This only looks at the name, so check the label for hidden ingredients.
+          {:else}Kept out of suggestions: {test.reasons.map(REASON_TEXT).join('; ')}.{/if}
+        </p>
+      {/if}
     </div>
     <div class="setting-divider"></div>
     <p class="pref-note" data-testid="safety-note">{SAFETY_NOTE}</p>
@@ -167,5 +189,9 @@
   .pref-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .pref-chip { min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
   .pref-chip.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .pref-quick { margin-top: 10px; }
+  .pref-test-input { width: 100%; margin-top: 8px; font-size: 16px; }
+  .pref-test-result { margin: 8px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-2); }
+  .pref-test-result.blocked { color: #eab308; }
   .pref-note { margin: 0; padding: 12px 16px 14px; font-size: 12.5px; line-height: 1.45; color: var(--text-3); }
 </style>

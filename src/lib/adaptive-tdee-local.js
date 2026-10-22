@@ -221,3 +221,39 @@ export async function computeAdaptiveTdeeLocal(opts = {}) {
     computedAt: new Date().toISOString(),
   };
 }
+
+/**
+ * Fork: local mirror of getWeightHistory() on the server, for Android standalone mode
+ * and when the server is unreachable. Same shape, same priority rules.
+ */
+export async function computeWeightHistoryLocal(days = 365) {
+  const n = Math.max(7, Math.min(Number(days) || 365, 3650));
+  const startDate = _isoDaysAgo(n - 1);
+  const endDate = _isoDaysAgo(0);
+  const db = await getDb();
+  const diaryRes = await db.query(
+    `SELECT date, body_stats FROM diary WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date ASC`,
+    [LOCAL_USER_ID, startDate, endDate]
+  );
+  const wellRes = await db.query(
+    `SELECT date, source, value FROM wellness_data
+     WHERE user_id = ? AND metric_type = 'weight_kg' AND date >= ? AND date <= ? AND value > 0
+     ORDER BY date ASC`,
+    [LOCAL_USER_ID, startDate, endDate]
+  );
+  const PRIORITY = ['withings', 'fitbit', 'garmin', 'health_connect', 'apple_health'];
+  const byDate = new Map();
+  for (const r of (wellRes?.values || [])) {
+    const cur = byDate.get(r.date);
+    const rank = PRIORITY.indexOf(r.source), curRank = cur ? PRIORITY.indexOf(cur.src2) : -1;
+    if (!cur || (rank !== -1 && (curRank === -1 || rank < curRank))) byDate.set(r.date, { d: r.date, kg: r.value, src: 'wellness', src2: r.source });
+  }
+  for (const r of (diaryRes?.values || [])) {
+    if (byDate.has(r.date)) continue;
+    const kg = _bodyStatsWeightKg(r.body_stats);
+    if (kg != null) byDate.set(r.date, { d: r.date, kg, src: 'manual' });
+  }
+  const weights = [...byDate.values()].sort((a, b) => a.d.localeCompare(b.d))
+    .map(w => ({ d: w.d, kg: Math.round(w.kg * 100) / 100, src: w.src }));
+  return { weights };
+}

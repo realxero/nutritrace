@@ -119,14 +119,99 @@ export function dietViolation(food, diet = 'none') {
   return null;
 }
 
-/** Free-text terms ("mushrooms", "mustard") matched as words inside the food's text. */
+/* ── Dislikes and "other things to avoid": free-text terms ─────────────────
+ * Matched as WHOLE WORDS (so "ham" no longer hits "hamburger" and "pea" no longer
+ * hits "peanut"), with plurals ignored, common synonyms ("cilantro" = "coriander"),
+ * group words ("seafood", "red meat", "spicy"), and one-letter typos tolerated
+ * ("mushrom"). Several words match when all of them appear, in any order.
+ */
+
+const stem = (w) => w.length > 4 && w.endsWith('ies') ? w.slice(0, -3) + 'y'
+  : w.length > 4 && /(ches|shes|xes|oes|ses)$/.test(w) ? w.slice(0, -2)
+  : w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w;
+const words = (s) => norm(s).split(' ').filter(Boolean).map(stem);
+
+/** Words that mean the same thing. */
+const SAME = [
+  ['cilantro', 'coriander'], ['eggplant', 'aubergine'], ['zucchini', 'courgette'], ['shrimp', 'prawn'],
+  ['chickpea', 'garbanzo'], ['arugula', 'rocket'], ['scallion', 'green onion', 'spring onion'], ['bell pepper', 'capsicum'],
+  ['garbanzo', 'chickpea'], ['soda', 'pop'], ['yoghurt', 'yogurt'], ['mince', 'ground beef'], ['fries', 'chips'],
+];
+/** Group words → what they cover (each entry is itself matched as words/phrases). */
+const GROUPS = {
+  seafood: ['fish', 'salmon', 'tuna', 'cod', 'tilapia', 'trout', 'halibut', 'anchovy', 'sardine', 'mackerel', 'haddock', 'shrimp', 'prawn', 'crab', 'lobster', 'scallop', 'clam', 'mussel', 'oyster', 'squid', 'calamari', 'octopus', 'sushi', 'sashimi'],
+  fish: ['fish', 'salmon', 'tuna', 'cod', 'tilapia', 'trout', 'halibut', 'anchovy', 'sardine', 'mackerel', 'haddock', 'sushi', 'sashimi'],
+  'red meat': ['beef', 'steak', 'sirloin', 'ribeye', 'brisket', 'pork', 'lamb', 'veal', 'bison', 'venison', 'ham', 'bacon', 'sausage', 'hot dog', 'burger', 'hamburger', 'cheeseburger', 'meatball', 'ground beef'],
+  meat: ['beef', 'steak', 'pork', 'lamb', 'veal', 'ham', 'bacon', 'sausage', 'hot dog', 'burger', 'hamburger', 'chicken', 'turkey', 'duck', 'meatball', 'jerky', 'pepperoni', 'salami'],
+  poultry: ['chicken', 'turkey', 'duck', 'goose', 'nugget', 'wing', 'drumstick'],
+  nuts: ['peanut', 'almond', 'walnut', 'cashew', 'pecan', 'pistachio', 'hazelnut', 'macadamia', 'brazil nut', 'pine nut', 'nut', 'nutella'],
+  dairy: ['milk', 'cheese', 'yogurt', 'butter', 'cream', 'whey', 'ice cream', 'latte', 'cheddar', 'mozzarella', 'parmesan', 'custard'],
+  spicy: ['jalapeno', 'chili', 'chilli', 'hot sauce', 'sriracha', 'cayenne', 'habanero', 'curry', 'wasabi', 'buffalo', 'spicy', 'pepper flake', 'tabasco'],
+  'organ meat': ['liver', 'kidney', 'tripe', 'heart', 'offal', 'tongue', 'pate'],
+  onion: ['onion', 'shallot', 'scallion', 'chive', 'leek'],
+  beans: ['bean', 'lentil', 'chickpea', 'garbanzo', 'hummus', 'edamame'],
+  fried: ['fried', 'fries', 'tempura', 'crispy', 'nugget', 'breaded', 'battered'],
+  sweets: ['candy', 'chocolate', 'cookie', 'cake', 'donut', 'doughnut', 'ice cream', 'brownie', 'pastry', 'pie', 'dessert'],
+  berries: ['strawberry', 'blueberry', 'raspberry', 'blackberry', 'cranberry', 'berry'],
+};
+
+/** Edit distance ≤ 1 (insert, delete, swap-free substitute) between two stems. */
+function within1(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length === b.length) { i++; j++; } else if (a.length > b.length) i++; else j++;
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function phraseIn(textWords, textJoined, phrase) {
+  const pw = words(phrase);
+  if (!pw.length) return false;
+  if (pw.length === 1) {
+    const w = pw[0];
+    return textWords.includes(w) || (w.length >= 5 && textWords.some(t => t[0] === w[0] && t.length >= 4 && within1(t, w)));
+  }
+  return textJoined.includes(` ${pw.join(' ')} `) || pw.every(w => textWords.includes(w));
+}
+
+// Group names compared after the same plural clean-up as the text ("nuts" → "nut", "red meat" stays).
+const GROUP_KEY = new Map(Object.keys(GROUPS).map(g => [words(g).join(' '), g]));
+
+function expandTerm(term) {
+  const k = words(term).join(' ');
+  const out = new Set([term]);
+  for (const grp of SAME) if (grp.some(g => words(g).join(' ') === k)) grp.forEach(g => out.add(g));
+  const g = GROUP_KEY.get(k) || GROUP_KEY.get(k.replace(/ food$/, ''));          // "spicy food" = "spicy"
+  if (g) GROUPS[g].forEach(x => out.add(x));
+  return [...out];
+}
+
+/** The free-text terms (dislikes, avoids) a food matches. */
 export function termHits(food, terms = []) {
-  const text = ` ${foodText(food)} `;
-  if (!text.trim()) return [];
+  const raw = foodText(food);
+  if (!raw) return [];
+  const tw = words(raw);
+  const joined = ` ${tw.join(' ')} `;
   return (terms || []).filter(term => {
     const k = norm(term);
-    return k.length >= 3 && (text.includes(` ${k} `) || text.includes(` ${k}s `) || text.includes(` ${k}es `) || text.includes(k));
+    if (k.length < 2) return false;
+    return expandTerm(term).some(t => phraseIn(tw, joined, t));
   });
+}
+
+/** Quick-add suggestions for the dislikes box. */
+export const COMMON_DISLIKES = ['Mushrooms', 'Olives', 'Cilantro', 'Seafood', 'Spicy food', 'Liver', 'Onions', 'Tofu', 'Anchovies', 'Blue cheese'];
+
+/** Why a typed food would (or would not) be kept out, for the "test a food" box in Settings. */
+export function explainFood(text, prefs) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  const r = checkFood({ name: t }, prefs);
+  return { ok: r.ok, reasons: r.reasons };
 }
 
 export const EMPTY_PREFS = Object.freeze({ allergens: [], avoid: [], diet: 'none', dislikes: [] });

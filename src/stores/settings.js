@@ -49,7 +49,7 @@ export const USER_PREFS = new Set([
   'statsMetricOrder','statsHiddenMetrics',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
-  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','recentRestaurants','dietType','foodAllergens','foodAvoid','foodDislikes','shoppingList','activity','tdee',
+  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','recentRestaurants','dietType','foodAllergens','foodAvoid','foodDislikes','shoppingList','planStart','celebratedEvents','showProgress','showPatterns','activity','tdee',
   // Native local-mode profile fields (no auth → no users table; these stand in for
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
@@ -578,6 +578,13 @@ export const foodPrefs = derived([dietType, foodAllergens, foodAvoid, foodDislik
   ([$d, $a, $v, $x]) => ({ diet: $d || 'none', allergens: $a || [], avoid: $v || [], dislikes: $x || [] }));
 // The shopping list: [{ id, name, qty, unit, aisle, checked, source }]
 export const shoppingList = createSettingStore('shoppingList', []);
+// Progress (streaks, milestones, achievements) and the patterns card, on the Goals page.
+export const showProgress = createSettingStore('showProgress', true);
+export const showPatterns = createSettingStore('showPatterns', true);
+// Where the current plan started ({ date, kg }); null = the first weigh-in. "Restart from today" sets it.
+export const planStart = createSettingStore('planStart', null);
+// Ids of milestones/achievements the user has already been shown (so each is celebrated once).
+export const celebratedEvents = createSettingStore('celebratedEvents', []);
 foodOverrides.subscribe((v) => setFoodOverrides(v));
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group

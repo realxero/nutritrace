@@ -257,3 +257,39 @@ export function computeAdaptiveTdee(userId, opts = {}) {
     computedAt: new Date().toISOString(),
   };
 }
+
+/**
+ * Fork: every weigh-in in the last `days` days (default a year, at most ten), one per day,
+ * scale (Withings/Fitbit/Garmin/Health Connect/Apple Health) first, manual entries otherwise.
+ * Raw readings only: the smoothing, milestones and chart are built from this on the client,
+ * the same way on the server and on Android.
+ * @returns {{ weights: Array<{d:string, kg:number, src:'wellness'|'manual'}> }}
+ */
+export function getWeightHistory(userId, days = 365) {
+  const n = Math.max(7, Math.min(Number(days) || 365, 3650));
+  const startDate = _isoDaysAgo(n - 1);
+  const endDate = _isoDaysAgo(0);
+  const diaryRows = db.prepare(
+    `SELECT date, body_stats FROM diary WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date ASC`
+  ).all(userId, startDate, endDate);
+  const wellRows = db.prepare(
+    `SELECT date, source, value FROM wellness_data
+     WHERE user_id = ? AND metric_type = 'weight_kg' AND date >= ? AND date <= ? AND value > 0
+     ORDER BY date ASC`
+  ).all(userId, startDate, endDate);
+  const PRIORITY = ['withings', 'fitbit', 'garmin', 'health_connect', 'apple_health'];
+  const byDate = new Map();
+  for (const r of wellRows) {
+    const cur = byDate.get(r.date);
+    const rank = PRIORITY.indexOf(r.source), curRank = cur ? PRIORITY.indexOf(cur.src2) : -1;
+    if (!cur || (rank !== -1 && (curRank === -1 || rank < curRank))) byDate.set(r.date, { d: r.date, kg: r.value, src: 'wellness', src2: r.source });
+  }
+  for (const r of diaryRows) {
+    if (byDate.has(r.date)) continue;                      // a scale reading wins over a typed one
+    const kg = _bodyStatsWeightKg(r.body_stats);
+    if (kg != null) byDate.set(r.date, { d: r.date, kg, src: 'manual' });
+  }
+  const weights = [...byDate.values()].sort((a, b) => a.d.localeCompare(b.d))
+    .map(w => ({ d: w.d, kg: Math.round(w.kg * 100) / 100, src: w.src }));
+  return { weights };
+}

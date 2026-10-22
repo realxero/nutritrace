@@ -8,7 +8,9 @@
   import { NtApi } from '../../lib/api.js';
   import { localDateStr } from '../../lib/db.js';
   import { Nutrition } from '../../lib/nutrition.js';
-  import { summarizeWeek, verdictText } from '../../lib/weekly-checkin.js';
+  import { summarizeWeek, verdictText, summarizeNutrients } from '../../lib/weekly-checkin.js';
+  import { itemTotals } from '../../lib/suggestions.js';
+  import { limitFor } from '../../lib/day-suggestions.js';
   import { projectFromAdaptive, suggestAdjustment, adjustmentText } from '../../lib/goal-projection.js';
   import { DB } from '../../lib/db.js';
   import { energyUnit, weightUnit, goals, smartSuggestions, targetWeightKg, targetWeightDate } from '../../stores/settings.js';
@@ -17,6 +19,7 @@
   let failed = false;
   let s = null;
   let adaptiveRaw = null;
+  let nutri = null;
 
   const kgOut = (kg) => $weightUnit === 'kg' ? kg : kg * 2.20462;
   const wFmt = (kg) => {
@@ -43,6 +46,13 @@
       });
       adaptiveRaw = adaptive;
       s = summarizeWeek({ dayCalories, adaptive });
+      // Fork: sodium and fiber over the same days (the user's goals when set, else the standard values).
+      const goalVal = (g, key) => { const v = g && (key === 'fiber' ? (g.min ?? g.max) : g.max); return Number(v) > 0 ? Number(v) : null; };
+      const lim = { sodium: goalVal($goals?.sodium, 'sodium'), fiber: goalVal($goals?.fiber, 'fiber') };
+      nutri = summarizeNutrients({
+        days: entries.map(e => { const items = (e && e.items) || []; const t = items.reduce((a, i) => { const x = itemTotals(i); return { sodium: a.sodium + x.sodium, fiber: a.fiber + x.fiber }; }, { sodium: 0, fiber: 0 }); return { ...t, logged: items.length > 0 }; }),
+        sodiumLimit: limitFor('sodium', lim).value, fiberTarget: limitFor('fiber', lim).value,
+      });
     } catch { failed = true; }
     loading = false;
   }
@@ -79,6 +89,12 @@
       <div class="wk-cell"><div class="wk-num">{s.trendKgPerWeek != null ? wFmt(s.trendKgPerWeek) : '—'}</div><div class="wk-lab">weight trend</div></div>
     </div>
     <p class="wk-verdict" data-verdict={s.verdict}>{verdictText(s.verdict)}</p>
+    {#if nutri && nutri.sodiumAvg != null}
+      <div class="wk-grid wk-nutri" data-testid="weekly-nutrients">
+        <div class="wk-cell"><div class="wk-num">{nutri.sodiumAvg.toLocaleString()} mg</div><div class="wk-lab">avg sodium / day · over {nutri.sodiumLimit.toLocaleString()} on {nutri.sodiumDaysOver} of {nutri.loggedDays} days</div></div>
+        <div class="wk-cell"><div class="wk-num">{nutri.fiberAvg} g</div><div class="wk-lab">avg fiber / day · under {nutri.fiberTarget} g on {nutri.fiberDaysUnder} of {nutri.loggedDays} days</div></div>
+      </div>
+    {/if}
     {#if adj}
       <p class="wk-adjust" data-kind={adj.kind} data-testid="weekly-adjustment">{adjustmentText(adj, dateLabel($targetWeightDate))}</p>
     {/if}
@@ -97,6 +113,7 @@
   .wk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
   .wk-num { font-size: 18px; font-weight: 700; }
   .wk-lab { font-size: 12px; color: var(--text-3); }
+  .wk-nutri { margin-top: 12px; }
   .wk-verdict { margin: 12px 0 0; font-size: 14px; line-height: 1.4; }
   .wk-adjust { margin: 10px 0 0; padding: 10px 12px; font-size: 14px; line-height: 1.4; border-radius: var(--radius-sm); background: var(--accent-dim); }
   .wk-adjust[data-kind='too-soon'] { background: rgba(234, 179, 8, .15); }

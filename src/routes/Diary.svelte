@@ -19,6 +19,7 @@
   import BetterOptionSheet from '../components/diary/BetterOptionSheet.svelte'; // fork: on-demand better option
   import RestaurantSheet from '../components/diary/RestaurantSheet.svelte';     // fork: eating out, menu options via Trace
   import DayPlanSheet from '../components/diary/DayPlanSheet.svelte';           // fork: plan my whole day
+  import { allergenHits, termHits, ALLERGENS } from '../lib/food-safety.js';        // fork: allergen tag on logged foods
   import ShoppingListSheet from '../components/diary/ShoppingListSheet.svelte'; // fork: shopping list
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
   import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
@@ -50,7 +51,7 @@
     buildDiaryWritePayload,
     _newUuid as _diaryUuid
   } from '../stores/diary.js';
-  import { mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
+  import { foodAllergens, foodAvoid, mealNames, goals, energyUnit, weightUnit, lengthUnit, navStyle,
            diaryShowBrands, diaryShowThumbnails,
            diaryShowTimestamps, diaryShowMacroSummary, diaryPromptQuantity,
            diaryShowPortionSize, diaryShowNotes, diaryShowNutritionBar, diaryTotalsMode, macroLegendMode, distUnit,
@@ -1661,6 +1662,14 @@
 
   // Fork: "Better option for my goal" for one logged food. Always available,
   // whether or not Smart Suggestions are switched on.
+  // Fork: a quiet amber tag on a logged food whose NAME mentions something on the allergy list.
+  // Name-based, so worded as "may contain"; it appears only when allergies are set.
+  const _allergyLabel = (id) => ALLERGENS.find(a => a.id === id)?.label.split(' (')[0].split(' /')[0].toLowerCase() || id;
+  function allergyTag(item, allergens, avoid) {
+    if (!item || item.type === 'quick_calories' || (!(allergens || []).length && !(avoid || []).length)) return '';
+    const hits = [...allergenHits(item, allergens).map(_allergyLabel), ...termHits(item, avoid)];
+    return hits.length ? `may contain ${[...new Set(hits)].join(', ')}` : '';
+  }
   let showBetter = false;
   let betterItem = null;
   let showRestaurant = false;
@@ -2392,6 +2401,7 @@
                       {amountAndUnit(Math.round((item.portion || item.amount || 100) * (item.quantity || 1) * 10) / 10, item.unit)}{#if $diaryShowPortionSize && Math.abs((item.quantity || 1) - 1) > 0.001} ({item.quantity || 1} × {amountAndUnit(item.portion || item.amount || 100, item.unit)}){/if}
                       {#if $diaryShowBrands && item.brand} · {item.brand}{/if}
                       · {_itemEnergy.value.toLocaleString()} {_itemEnergy.unit}
+                      {#if allergyTag(item, $foodAllergens, $foodAvoid)}<span class="allergen-tag" data-testid="allergen-tag" title="Based on the food's name only. Check the label."> · <span class="material-symbols-rounded" aria-hidden="true">warning</span> {allergyTag(item, $foodAllergens, $foodAvoid)}</span>{/if}
                       {#if $diaryShowTimestamps && item.addedAt}
                         · {formatTime(item.addedAt)}
                       {/if}
@@ -3637,6 +3647,8 @@
   }
   .amb-seg:last-child { border-right: 0; }
 
+  .allergen-tag { color: #eab308; white-space: nowrap; }
+  .allergen-tag .material-symbols-rounded { font-size: 13px; vertical-align: -2px; }
   /* diary-page no longer overrides page-shell padding-top — same as every other page */
 
   /* Action icons fixed at top-right, same level as hamburger */

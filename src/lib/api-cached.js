@@ -389,6 +389,14 @@ export const NtApiCached = {
         return await computeAdaptiveTdeeLocal();
       }
     }
+    // Fork: weigh-in history (server first, local fallback), same as adaptive TDEE.
+    if (path.startsWith('/api/goals/weight-history')) {
+      try { return await _serverFetch('GET', path); }
+      catch {
+        const { computeWeightHistoryLocal } = await import('./adaptive-tdee-local.js');
+        return await computeWeightHistoryLocal(Number(new URLSearchParams(path.split('?')[1] || '').get('days')) || 365);
+      }
+    }
     return _serverFetch('GET', path);
   },
   async post(path, body) {

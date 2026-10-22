@@ -11,7 +11,7 @@
  * the targets, and anything that does not (protein short, a limit exceeded) is
  * said plainly in `notes`.
  */
-import { COMMON_FOODS, commonFoodToFood } from './common-foods.js';
+import { COMMON_FOODS, commonFoodToFood, searchCommonFoodsScored } from './common-foods.js';
 import { itemTotals, isMuted } from './suggestions.js';
 import { isAllowed } from './food-safety.js';
 
@@ -40,8 +40,8 @@ const TEMPLATES = {
 };
 const SHARE = { breakfast: 0.25, lunch: 0.32, dinner: 0.33, snack: 0.10 };
 /** Which roles flex to hit the calories (first = grown first), and which shrink first. */
-const GROW = ['starch', 'breakfast-starch', 'fruit', 'fat', 'protein', 'breakfast-protein', 'snack-protein', 'veg'];
-const SHRINK = ['fat', 'starch', 'breakfast-starch', 'fruit', 'veg', 'protein', 'breakfast-protein', 'snack-protein'];
+const GROW = ['dish', 'starch', 'breakfast-starch', 'fruit', 'fat', 'protein', 'breakfast-protein', 'snack-protein', 'veg'];
+const SHRINK = ['fat', 'dish', 'starch', 'breakfast-starch', 'fruit', 'veg', 'protein', 'breakfast-protein', 'snack-protein'];
 
 /** A meal slot's kind, from its name, else its position. */
 export function mealKind(name, idx) {
@@ -65,8 +65,73 @@ const jitter = (seed, s) => { let h = 2166136261 ^ seed; for (let i = 0; i < s.l
 
 const per = (food) => itemTotals({ nutrition: food.nutrition, quantity: 1 });
 
-function candidatesFor(role, { prefs, muted, used, habit, seed, wantProtein }) {
+/* ── The user's own foods, meals and recipes ─────────────────────────────── */
+
+const FRUIT_RE = /\b(apple|banana|orange|berry|berries|strawberr\w*|blueberr\w*|raspberr\w*|grapes?|pears?|peach\w*|mango\w*|pineapple|kiwi|melon|cherr\w*|plum|clementine|fruit)\b/i;
+const VEG_RE = /\b(broccoli|spinach|kale|lettuce|salad|carrots?|peppers?|zucchini|cauliflower|asparagus|cucumber|tomato\w*|mushrooms?|green beans?|brussels|cabbage|celery|veggies?|vegetables?)\b/i;
+const SKIP_RE = /\b(soda|cola|juice|candy|chocolate|cookie|cake|donut|doughnut|ice cream|chips|fries|beer|wine|vodka|whiskey|liquor|syrup|sugar|honey|sauce|dressing|ketchup|mayo|oil|butter|cream|pizza|brownie|pastry|pie|seasoning|spice|coffee|tea|water)\b/i;
+const BREAKFASTY = /\b(yogurt|yoghurt|skyr|egg|eggs|cottage|tofu|oat|oatmeal|cereal|granola|toast|bagel|muffin|bread|waffle|pancake)\b/i;
+
+/**
+ * Which plan roles a food of the user's can fill. A built-in match (the same food saved
+ * earlier) keeps the built-in roles; anything else is judged by its name and its macros
+ * per serving. An empty list means "not a planning food" (sauces, sweets, drinks...).
+ */
+export function classifyRole(food) {
+  if (!food || !food.name) return [];
+  const name = String(food.name);
+  const [best] = searchCommonFoodsScored(name, 1);
+  if (best && best.score >= 85) {
+    const roles = Object.keys(ROLES).filter(r => ROLES[r].includes(best.entry.name));
+    if (roles.length) return roles;
+  }
+  const t = itemTotals({ nutrition: food.nutrition, quantity: 1 });
+  const kcal = t.calories, p = t.proteins, c = t.carbohydrates, f = t.fat;
+  if (!(kcal > 0)) return [];
+  const protein = /protein|whey/i.test(name);
+  if (SKIP_RE.test(name) && !protein) return [];
+  const roles = [];
+  if (kcal >= 300 && kcal <= 900 && p >= 15 && c >= 20) roles.push('dish');                   // a complete meal in one food
+  else if (FRUIT_RE.test(name) && kcal <= 250) roles.push('fruit');
+  else if (VEG_RE.test(name) && kcal <= 150) roles.push('veg');
+  else if (p >= 10 && p / kcal >= 0.075 && kcal <= 500) {
+    roles.push('protein');
+    if (BREAKFASTY.test(name) || protein) roles.push('breakfast-protein');
+    if (kcal <= 250) roles.push('snack-protein');
+  } else if (/\b(bar|jerky|nuts?|almonds?|trail)\b/i.test(name) && p >= 5 && kcal <= 300) roles.push('snack-protein');
+  else if ((c * 4) / kcal >= 0.6 && p / kcal < 0.075 && kcal >= 80 && kcal <= 450) {
+    roles.push('starch');
+    if (BREAKFASTY.test(name)) roles.push('breakfast-starch');
+  } else if ((f * 9) / kcal >= 0.6 && kcal <= 250) roles.push('fat');
+  return roles;
+}
+
+/** A saved meal or recipe as something the planner can place as one dish. */
+export function dishFromMeal(m, isRecipe = false) {
+  if (!m || !m.name || m.deleted_at) return null;
+  const n = m.nutrition && typeof m.nutrition === 'object' ? m.nutrition : null;
+  if (!n || !(parseFloat(n.calories) > 0)) return null;
+  const kcal = parseFloat(n.calories);
+  if (kcal < 120 || kcal > 1400) return null;
+  return { ...m, kind: isRecipe ? 'recipe' : 'meal', portion: isRecipe ? (m.portion || 1) : 1, unit: isRecipe ? (m.unit || 'serving') : 'meal',
+    nutrition: n, _dish: true, _mealItems: isRecipe ? null : (Array.isArray(m.items) ? m.items : []) };
+}
+
+/** role → the user's own candidates (brands, saved foods, dishes). Built-in copies saved earlier are left to the built-in list. */
+export function userPools({ saved = [], dishes = [] } = {}) {
+  const pools = new Map();
+  const add = (role, entry) => { if (!pools.has(role)) pools.set(role, []); pools.get(role).push(entry); };
+  for (const f of saved || []) {
+    if (!f || f.deleted_at || !f.name || f.brand === 'USDA' || !f.nutrition) continue;
+    for (const role of classifyRole(f)) add(role, { name: f.name, food: f, habit: Number(f.usage_count) || 0 });
+  }
+  for (const d of dishes || []) if (d && d._dish) add('dish', { name: d.name, food: d, habit: Number(d.usage_count) || 0 });
+  return pools;
+}
+
+function candidatesFor(role, { prefs, muted, used, habit, seed, wantProtein, pools }) {
   const out = [];
+  const seenNames = new Set();
   for (const name of ROLES[role] || []) {
     const food = libFood(name);
     if (!food || used.has(name) || isMuted(name, muted) || !isAllowed(food, prefs)) continue;
@@ -77,6 +142,17 @@ function candidatesFor(role, { prefs, muted, used, habit, seed, wantProtein }) {
     score += Math.min(habit.get(name.toLowerCase()) || 0, 12) * 0.35;                     // foods they already log
     if (wantProtein) score += Math.min(density * 8, 2);                                   // lean protein first
     out.push({ name, food, score });
+    seenNames.add(name.toLowerCase());
+  }
+  // Their own foods, brands, meals and recipes. A little ahead of the built-ins, more so the more they use them.
+  for (const u of (pools && pools.get(role)) || []) {
+    const name = u.name;
+    if (!name || seenNames.has(name.toLowerCase()) || used.has(name) || isMuted(name, muted) || !isAllowed(u.food, prefs)) continue;
+    const t = per(u.food);
+    if (!(t.calories > 0)) continue;
+    let score = jitter(seed, `${role}|${name}`) * 1.6 + 0.8 + Math.min(u.habit, 12) * 0.35;
+    if (wantProtein) score += Math.min((t.proteins / t.calories) * 8, 2);
+    out.push({ name, food: u.food, score, yours: true });
   }
   return out.sort((a, b) => b.score - a.score);
 }
@@ -86,13 +162,13 @@ function altsFor(role, chosen, kcalTarget, ctx) {
   const used = new Set(ctx.used); used.delete(chosen.name);
   return candidatesFor(role, { ...ctx, used }).filter(c => c.name !== chosen.name).slice(0, 3).map(c => {
     const t = per(c.food);
-    return { food: c.food, quantity: clamp(half(kcalTarget / t.calories), 0.5, 4) };
+    return { food: c.food, quantity: clamp(half(kcalTarget / t.calories), 0.5, 4), yours: !!c.yours };
   });
 }
 
-function itemOf(role, name, food, quantity, ctx, kcalForAlts) {
+function itemOf(role, name, food, quantity, ctx, kcalForAlts, yours = false) {
   const t = itemTotals({ nutrition: food.nutrition, quantity });
-  return { id: `${role}:${name}`, role, food, quantity, kcal: r0(t.calories), protein: r0(t.proteins), alts: [], _kcalForAlts: kcalForAlts };
+  return { id: `${role}:${name}`, role, food, quantity, kcal: r0(t.calories), protein: r0(t.proteins), alts: [], yours, _kcalForAlts: kcalForAlts };
 }
 
 const kcalOf = (items) => items.reduce((a, i) => a + itemTotals({ nutrition: i.food.nutrition, quantity: i.quantity }).calories, 0);
@@ -146,9 +222,11 @@ export function planTotals(plan) {
  * @param {object} p.prefs   allergies, diet, dislikes (lib/food-safety.js)
  * @param {Array}  p.saved   the user's saved foods (their habits nudge the picks)
  * @param {string[]} p.muted never-suggest foods
+ * @param {Array}  p.dishes  saved meals and recipes as dishes (see dishFromMeal)
+ * @param {string[]} p.usedNames foods to avoid repeating (yesterday's, when planning a week)
  * @param {number} p.seed    0 first, then 1, 2… for "Shuffle"
  */
-export function planDay({ meals = [], remaining = {}, limits = {}, prefs = null, saved = [], muted = [], seed = 0 } = {}) {
+export function planDay({ meals = [], remaining = {}, limits = {}, prefs = null, saved = [], dishes = [], muted = [], seed = 0, usedNames = [] } = {}) {
   const kcalLeft = Number(remaining.calories);
   if (!(kcalLeft > 0)) return { needsGoal: !Number.isFinite(kcalLeft), meals: [], totals: null, targets: null, notes: [], full: Number.isFinite(kcalLeft) };
 
@@ -163,8 +241,9 @@ export function planDay({ meals = [], remaining = {}, limits = {}, prefs = null,
 
   const kinds = slots.map(m => mealKind(m.name, m.idx));
   const shareSum = kinds.reduce((a, k) => a + SHARE[k], 0);
-  const used = new Set();
-  const ctx = { prefs, muted, used, habit, seed };
+  const used = new Set(usedNames || []);
+  const pools = userPools({ saved, dishes });
+  const ctx = { prefs, muted, used, habit, seed, pools };
   const notes = [];
   const out = [];
 
@@ -173,7 +252,9 @@ export function planDay({ meals = [], remaining = {}, limits = {}, prefs = null,
     const w = SHARE[kind] / shareSum;
     const target = { kcal: r0(kcalLeft * w), protein: r0(proteinLeft * w) };
     const items = [];
-    for (const role of TEMPLATES[kind]) {
+    // A saved meal or recipe can stand in for the whole lunch or dinner, on alternate shuffles.
+    const useDish = (kind === 'lunch' || kind === 'dinner') && (seed + n) % 2 === 0 && candidatesFor('dish', ctx).length > 0;
+    for (const role of useDish ? ['dish', 'veg'] : TEMPLATES[kind]) {
       const pick = candidatesFor(role, { ...ctx, wantProtein: /protein/.test(role) })[0];
       if (!pick) { notes.push(`No ${role.replace('-', ' ')} option fits your preferences for ${slot.name}.`); continue; }
       used.add(pick.name);
@@ -181,7 +262,8 @@ export function planDay({ meals = [], remaining = {}, limits = {}, prefs = null,
       let q = 1;
       if (/protein/.test(role) && t.proteins > 0) q = clamp(half((target.protein * 0.7) / t.proteins), 0.5, 3);
       if (role === 'veg') q = 1;
-      items.push({ ...itemOf(role, pick.name, pick.food, q, ctx), _pick: pick.name });
+      if (role === 'dish' && t.calories > 0) q = clamp(half((target.kcal * 0.85) / t.calories), 0.5, 2);
+      items.push({ ...itemOf(role, pick.name, pick.food, q, ctx, undefined, !!pick.yours), _pick: pick.name });
     }
     if (!items.length) return;
     fitMeal(items, target.kcal, {
@@ -191,7 +273,7 @@ export function planDay({ meals = [], remaining = {}, limits = {}, prefs = null,
         if (!pick) return null;
         used.add(pick.name);
         const t = per(pick.food);
-        return itemOf('fat', pick.name, pick.food, clamp(half((target.kcal * 0.12) / t.calories), 0.5, 2), ctx);
+        return itemOf('fat', pick.name, pick.food, clamp(half((target.kcal * 0.12) / t.calories), 0.5, 2), ctx, undefined, !!pick.yours);
       },
     });
     for (const it of items) { refresh(it); it.alts = altsFor(it.role, { name: it._pick }, it.kcal, ctx); delete it._kcalForAlts; delete it._pick; }
@@ -218,7 +300,7 @@ function topUpProtein(plan, ctx) {
     const host = plan.meals.find(m => m.kind === 'snack') || [...plan.meals].sort((a, b) => kcalOf(a.items) - kcalOf(b.items))[0];
     if (pick && host) {
       ctx.used.add(pick.name);
-      const it = itemOf('snack-protein', pick.name, pick.food, 1, ctx);
+      const it = itemOf('snack-protein', pick.name, pick.food, 1, ctx, undefined, !!pick.yours);
       it.alts = altsFor('snack-protein', { name: pick.name }, it.kcal, ctx);
       host.items.push(it);
     }
@@ -254,11 +336,12 @@ export function swapPlanItem(plan, mealPos, itemPos, altPos) {
   if (!it || !alt) return plan;
   const old = { food: it.food, quantity: it.quantity };
   const oldKcal = it.kcal;
-  it.food = alt.food; it.quantity = alt.quantity; it.id = `${it.role}:${alt.food.name}`;
+  const wasYours = !!it.yours;
+  it.food = alt.food; it.quantity = alt.quantity; it.id = `${it.role}:${alt.food.name}`; it.yours = !!alt.yours;
   refresh(it);
   // The old choice becomes an alternative, at the quantity that matches the new calories.
   const t = itemTotals({ nutrition: old.food.nutrition, quantity: 1 });
-  it.alts.splice(altPos, 1, { food: old.food, quantity: clamp(half(it.kcal / Math.max(t.calories, 1)), 0.5, 4) });
+  it.alts.splice(altPos, 1, { food: old.food, quantity: clamp(half(it.kcal / Math.max(t.calories, 1)), 0.5, 4), yours: wasYours });
   void oldKcal;
   next.totals = planTotals(next);
   next.notes = planNotes(next, {});
@@ -273,8 +356,37 @@ export function removePlanItem(plan, mealPos, itemPos) {
   return next;
 }
 
-/** What gets added to the diary: one row per item. */
+/**
+ * What gets added to the diary: one row per item. A saved meal is expanded into its
+ * ingredients (as logging a meal does everywhere else in the app); a recipe is one row.
+ */
 export function planToDiaryRows(plan, { onlyMeal = null } = {}) {
-  return plan.meals.filter(m => onlyMeal == null || m.idx === onlyMeal)
-    .flatMap(m => m.items.map(i => ({ meal: m.idx, food: i.food, quantity: i.quantity })));
+  const rows = [];
+  for (const m of plan.meals) {
+    if (onlyMeal != null && m.idx !== onlyMeal) continue;
+    for (const i of m.items) {
+      const ing = i.food && i.food._mealItems;
+      if (Array.isArray(ing) && ing.length) {
+        for (const x of ing) rows.push({ meal: m.idx, food: x, quantity: (parseFloat(x.quantity) || 1) * i.quantity, fromMeal: i.food.name });
+      } else rows.push({ meal: m.idx, food: i.food, quantity: i.quantity });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Plan several days. Each day uses its own seed and avoids repeating the day before,
+ * so the week is not the same dinner seven times.
+ * @param {Array<{date:string, meals:Array, remaining:object}>} days
+ * @returns {Array<{date:string, plan:object}>}
+ */
+export function planWeek({ days = [], limits = {}, prefs = null, saved = [], dishes = [], muted = [], seed = 0 } = {}) {
+  const out = [];
+  let prev = [];
+  days.forEach((d, i) => {
+    const plan = planDay({ meals: d.meals, remaining: d.remaining, limits, prefs, saved, dishes, muted, seed: seed * 7 + i, usedNames: prev });
+    prev = plan.meals ? plan.meals.flatMap(m => m.items.map(it => it.food.name)) : [];
+    out.push({ date: d.date, plan });
+  });
+  return out;
 }

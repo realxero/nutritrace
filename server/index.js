@@ -367,6 +367,18 @@ router.get('/api/goals/adaptive-tdee', async (req, res) => {
   }
 });
 
+// Fork: raw weigh-in history for the weight chart, timeline and milestones.
+router.get('/api/goals/weight-history', async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const { getWeightHistory } = await import('./lib/adaptive-tdee.js');
+    res.json(getWeightHistory(userId, Number(req.query.days) || 365));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 router.get('/api/health', (req, res) => res.json({ ok: true }));
 
 // Serve Svelte frontend (production build) — anything except index.html.

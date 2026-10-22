@@ -126,3 +126,67 @@ test('prompt lines: allergies are stated as hard rules, nothing when there are n
   assert.match(lines.join('\n'), /Vegetarian/);
   assert.match(lines.join('\n'), /olives/);
 });
+
+import { explainFood, COMMON_DISLIKES, REASON_TEXT } from '../src/lib/food-safety.js';
+
+test('dislikes match whole words: short words work, and no more substring accidents', () => {
+  assert.deepEqual(termHits(f('Ham, sliced'), ['ham']), ['ham']);
+  assert.deepEqual(termHits(f('Hamburger (single patty)'), ['ham']), []);       // was a false hit
+  assert.deepEqual(termHits(f('Peanut butter'), ['pea']), []);                    // was a false hit
+  assert.deepEqual(termHits(f('Green peas'), ['pea']), ['pea']);
+  assert.deepEqual(termHits(f('Oatmeal'), ['oat']), []);
+  assert.deepEqual(termHits(f('Rolled oats, dry'), ['oat']), ['oat']);
+  assert.deepEqual(termHits(f('Egg, fried'), ['egg']), ['egg']);
+});
+
+test('dislikes ignore plurals and match several words in any order', () => {
+  assert.deepEqual(termHits(f('Cherry tomatoes'), ['tomato']), ['tomato']);
+  assert.deepEqual(termHits(f('Tomato'), ['tomatoes']), ['tomatoes']);
+  assert.deepEqual(termHits(f('Blue cheese dressing'), ['blue cheese']), ['blue cheese']);
+  assert.deepEqual(termHits(f('Cheese, blue'), ['blue cheese']), ['blue cheese']);
+  assert.deepEqual(termHits(f('Cheddar cheese'), ['blue cheese']), []);
+});
+
+test('dislikes know synonyms', () => {
+  assert.deepEqual(termHits(f('Coriander chicken'), ['cilantro']), ['cilantro']);
+  assert.deepEqual(termHits(f('Grilled aubergine'), ['eggplant']), ['eggplant']);
+  assert.deepEqual(termHits(f('Courgette fritters'), ['zucchini']), ['zucchini']);
+  assert.deepEqual(termHits(f('Garbanzo salad'), ['chickpeas']), ['chickpeas']);
+  assert.deepEqual(termHits(f('Garlic prawns'), ['shrimp']), ['shrimp']);
+});
+
+test('dislikes know group words like seafood, red meat, spicy, nuts', () => {
+  assert.deepEqual(termHits(f('Salmon, cooked'), ['seafood']), ['seafood']);
+  assert.deepEqual(termHits(f('Shrimp, cooked'), ['seafood']), ['seafood']);
+  assert.deepEqual(termHits(f('Chicken breast, cooked'), ['seafood']), []);
+  assert.deepEqual(termHits(f('Pork chop, cooked'), ['red meat']), ['red meat']);
+  assert.deepEqual(termHits(f('Chicken breast, cooked'), ['red meat']), []);
+  assert.deepEqual(termHits(f('Jalapeño poppers'), ['spicy food']), ['spicy food']);
+  assert.deepEqual(termHits(f('Chicken wings, buffalo'), ['spicy']), ['spicy']);
+  assert.deepEqual(termHits(f('Walnuts'), ['nuts']), ['nuts']);
+  assert.deepEqual(termHits(f('Chicken liver'), ['organ meat']), ['organ meat']);
+  assert.deepEqual(termHits(f('Cherry tomatoes'), ['onions']), []);
+});
+
+test('dislikes tolerate a one-letter typo on longer words, but not on short ones', () => {
+  assert.deepEqual(termHits(f('Mushrooms'), ['mushrom']), ['mushrom']);
+  assert.deepEqual(termHits(f('Broccoli, cooked'), ['brocoli']), ['brocoli']);
+  assert.deepEqual(termHits(f('Cilantro lime rice'), ['cilantr']), ['cilantr']);   // one letter short still matches
+  assert.deepEqual(termHits(f('Pear'), ['peas']), []);                       // short words are exact only
+  assert.deepEqual(termHits(f('Maple syrup'), ['apple']), []);               // first letter must match
+  assert.deepEqual(termHits(f('Apple'), ['x']), []);                         // too short to mean anything
+});
+
+test('the "test a food" explanation says why, in words', () => {
+  const prefs = { allergens: ['milk'], avoid: ['mustard'], diet: 'vegetarian', dislikes: ['seafood'] };
+  assert.equal(explainFood('', prefs), null);
+  const a = explainFood('Salmon with butter and mustard', prefs);
+  assert.equal(a.ok, false);
+  const text = a.reasons.map(REASON_TEXT).join('; ');
+  assert.match(text, /contains Milk/);
+  assert.match(text, /avoids mustard/);
+  assert.match(text, /vegetarian/);
+  assert.match(text, /dislike seafood/);
+  assert.equal(explainFood('Brown rice', prefs).ok, true);
+  assert.ok(COMMON_DISLIKES.includes('Mushrooms'));
+});

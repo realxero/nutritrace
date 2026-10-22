@@ -8,32 +8,41 @@
 -->
 <script>
   import { buildChart } from '../../lib/weight-chart.js';
+  import { lastDays, spanDays } from '../../lib/weight-history.js';
   import { weightUnit } from '../../stores/settings.js';
 
   export let series = [];
+  export let longSeries = [];            // the full smoothed history (lib/weight-history.js)
   export let targetKg = null;
   export let projection = null;
   export let today = '';
 
   const LB = 2.20462;
-  let view = '';                         // '' = automatic
+  let view = '';                         // '' = automatic: 'goal' | '5w' | '3m' | 'all'
   $: hasCone = projection?.status === 'ok' && !!projection?.earliest;
-  $: mode = view || (hasCone ? 'goal' : 'history');
-  $: c = buildChart({ series, targetKg, projection, today, mode });
+  $: span = spanDays(longSeries);
+  $: has3m = span >= 40;
+  $: hasAll = span >= 100;
+  $: active = view || (hasCone ? 'goal' : '5w');
+  $: mode = active === 'goal' ? 'goal' : 'history';
+  $: shown = active === '3m' ? lastDays(longSeries, 92, today) : active === 'all' ? longSeries : series;
+  $: c = buildChart({ series: shown, targetKg, projection, today, mode });
   $: disp = (kg) => Math.round(($weightUnit === 'lb' ? kg * LB : kg) * 10) / 10;
   $: unitLabel = $weightUnit === 'lb' ? 'lb' : 'kg';
   const dayLabel = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
-  $: summary = c.empty ? '' : `Weight trend over ${mode === 'goal' ? 'the recent weeks and the projection' : 'the last five weeks'}: ${disp(c.trendEnd.kg)} ${unitLabel} now${c.goal ? `, goal ${disp(c.goal.kg)} ${unitLabel}` : ''}${c.eta ? `, estimated ${dayLabel(c.eta.earlyDate)} to ${dayLabel(c.eta.lateDate)}` : ''}.`;
+  $: summary = c.empty ? '' : `Weight trend over ${active === 'goal' ? 'the recent weeks and the projection' : active === '3m' ? 'the last three months' : active === 'all' ? 'your whole history' : 'the last five weeks'}: ${disp(c.trendEnd.kg)} ${unitLabel} now${c.goal ? `, goal ${disp(c.goal.kg)} ${unitLabel}` : ''}${c.eta ? `, estimated ${dayLabel(c.eta.earlyDate)} to ${dayLabel(c.eta.lateDate)}` : ''}.`;
 </script>
 
 {#if !c.empty}
   <div class="wc" data-testid="weight-chart">
     <div class="wc-head">
       <span class="wc-title">Weight trend</span>
-      {#if hasCone}
+      {#if hasCone || has3m}
         <div class="wc-seg" role="radiogroup" aria-label="Chart range">
-          <button type="button" role="radio" aria-checked={mode === 'goal'} class:on={mode === 'goal'} on:click={() => (view = 'goal')}>To goal</button>
-          <button type="button" role="radio" aria-checked={mode === 'history'} class:on={mode === 'history'} on:click={() => (view = 'history')}>5 weeks</button>
+          {#if hasCone}<button type="button" role="radio" aria-checked={active === 'goal'} class:on={active === 'goal'} on:click={() => (view = 'goal')}>To goal</button>{/if}
+          <button type="button" role="radio" aria-checked={active === '5w'} class:on={active === '5w'} on:click={() => (view = '5w')}>5 wks</button>
+          {#if has3m}<button type="button" role="radio" aria-checked={active === '3m'} class:on={active === '3m'} on:click={() => (view = '3m')}>3 mo</button>{/if}
+          {#if hasAll}<button type="button" role="radio" aria-checked={active === 'all'} class:on={active === 'all'} on:click={() => (view = 'all')}>All</button>{/if}
         </div>
       {/if}
     </div>
@@ -64,7 +73,7 @@
   .wc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .wc-title { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
   .wc-seg { display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--surface-2); }
-  .wc-seg button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .wc-seg button { min-height: 32px; padding: 0 10px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
   .wc-seg button.on { background: var(--accent); color: var(--bg, #fff); }
   .wc-svg { width: 100%; height: auto; display: block; overflow: visible; }
   .wc-grid { stroke: var(--border); stroke-width: 1; }

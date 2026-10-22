@@ -264,6 +264,10 @@ export const NtApiNative = {
       const { computeAdaptiveTdeeLocal } = await import('./adaptive-tdee-local.js');
       return await computeAdaptiveTdeeLocal();
     }
+    if (path.startsWith('/api/goals/weight-history')) {                      // fork: weigh-in history, local mode
+      const { computeWeightHistoryLocal } = await import('./adaptive-tdee-local.js');
+      return await computeWeightHistoryLocal(Number(new URLSearchParams(path.split('?')[1] || '').get('days')) || 365);
+    }
     if (path.startsWith('/api/wellness/calories-out')) return _caloriesOutLocal(path);
     if (path.startsWith('/api/wellness/latest'))       return _latestWellnessLocal(path);
     if (path.startsWith('/api/wellness/fitbit/data'))   return _wellnessDataLocal(path, ['fitbit', 'health_connect', 'apple_health']); // fork: + Apple Health

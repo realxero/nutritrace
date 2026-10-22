@@ -16,9 +16,11 @@
   import { goals, energyUnit, weightUnit, targetWeightKg, targetWeightDate } from '../../stores/settings.js';
   import DateInput from '../ui/DateInput.svelte';
   import WeightTrendChart from './WeightTrendChart.svelte';
+  import { smoothWeights } from '../../lib/weight-history.js';
 
   const LB = 2.20462;
   let adaptive = null;
+  let longSeries = [];
   let loaded = false;
   let editing = false;
   let wInput = '';
@@ -41,6 +43,8 @@
   onMount(async () => {
     try { adaptive = await NtApi.get('/api/goals/adaptive-tdee'); } catch { adaptive = null; }
     loaded = true;
+    // Fork: the whole weigh-in history for the 3-month and All chart views.
+    try { longSeries = smoothWeights((await NtApi.get('/api/goals/weight-history?days=3650'))?.weights || []); } catch { longSeries = []; }
   });
 
   // Current weight: smoothed trend → latest reading → the profile weight.
@@ -125,7 +129,7 @@
     {/if}
 
     {#if (adaptive?.weightSeries || []).length >= 3}
-      <WeightTrendChart series={adaptive.weightSeries} targetKg={Number($targetWeightKg) || null} projection={r} {today} />
+      <WeightTrendChart series={adaptive.weightSeries} {longSeries} targetKg={Number($targetWeightKg) || null} projection={r} {today} />
     {/if}
 
     {#if r.required}

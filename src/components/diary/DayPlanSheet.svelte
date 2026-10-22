@@ -18,7 +18,8 @@
   import ShoppingListSheet from './ShoppingListSheet.svelte';
   import { dayContext } from '../../lib/better-options.js';
   import { limitFor } from '../../lib/day-suggestions.js';
-  import { planDay, swapPlanItem, removePlanItem, planToDiaryRows } from '../../lib/day-plan.js';
+  import { planDay, swapPlanItem, removePlanItem, planToDiaryRows, dishFromMeal } from '../../lib/day-plan.js';
+  import WeekPlanSheet from './WeekPlanSheet.svelte';
   import { itemsToShopping, mergeShopping } from '../../lib/shopping.js';
   import { addSuggestedFood, undoAdd } from '../../lib/suggestion-actions.js';
   import { hasPrefs, SAFETY_NOTE, ALLERGENS } from '../../lib/food-safety.js';
@@ -33,6 +34,9 @@
   export let limits = {};
 
   let saved = [];
+  let dishes = [];
+  let loadedLib = false;
+  let showWeek = false;
   let seed = 0;
   let plan = null;
   let busy = false;
@@ -56,10 +60,18 @@
   $: if (!open) { loadedFor = ''; seed = 0; plan = null; }
 
   async function build() {
-    if (!saved.length) { try { saved = await NtApi.getFoods(); } catch { saved = []; } }
+    if (!loadedLib) {
+      loadedLib = true;
+      try { saved = await NtApi.getFoods(); } catch { saved = []; }
+      // Their own meals and recipes can stand in for a whole lunch or dinner.
+      try {
+        const [m, r] = await Promise.all([NtApi.getMeals().catch(() => []), NtApi.getRecipes().catch(() => [])]);
+        dishes = [...m.map(x => dishFromMeal(x, false)), ...r.map(x => dishFromMeal(x, true))].filter(Boolean);
+      } catch { dishes = []; }
+    }
     plan = planDay({
       meals: slots, remaining: { calories: ctx.remaining.calories, protein: ctx.remaining.protein },
-      limits, prefs: $foodPrefs, saved, muted: $mutedSuggestionFoods || [], seed,
+      limits, prefs: $foodPrefs, saved, dishes, muted: $mutedSuggestionFoods || [], seed,
     });
   }
 
@@ -69,7 +81,7 @@
     const it = plan.meals[menu.mealPos]?.items[menu.itemPos];
     if (!it) return [];
     return [
-      ...it.alts.map((a, n) => ({ label: `Swap for ${a.food.name} · ${Math.round(a.quantity * (a.food.nutrition?.calories || 0))} kcal`, icon: 'swap_horiz', value: `alt:${n}` })),
+      ...it.alts.map((a, n) => ({ label: `Swap for ${a.food.name}${a.food.brand && a.food.brand !== 'USDA' ? ` (${a.food.brand})` : ''} · ${Math.round(a.quantity * (a.food.nutrition?.calories || 0))} kcal`, icon: 'swap_horiz', value: `alt:${n}` })),
       { label: 'Remove from plan', icon: 'delete', value: 'remove', danger: true },
     ];
   })();
@@ -140,7 +152,7 @@
                 <button type="button" class="dp-item" on:click={() => openItem(mp, ip)} aria-label="Change {it.food.name}">
                   <span class="dp-thumb"><FoodIcon name={it.food.name} icon={it.food.icon} brand={it.food.brand} size={22} /></span>
                   <span class="dp-body">
-                    <span class="dp-name">{it.food.name}</span>
+                    <span class="dp-name">{it.food.name}{#if it.food.brand && it.food.brand !== 'USDA'} <span class="dp-brand">· {it.food.brand}</span>{/if}{#if it.yours} <span class="dp-yours">yours</span>{/if}</span>
                     <span class="dp-sub">{qtyLabel(it)} · {it.kcal} kcal · {it.protein} g protein</span>
                   </span>
                   <span class="material-symbols-rounded dp-chev" aria-hidden="true">more_horiz</span>
@@ -168,6 +180,9 @@
             <span class="material-symbols-rounded" style="font-size:18px" aria-hidden="true">shopping_cart</span> Shopping list
           </button>
         </div>
+        <button type="button" class="btn btn-ghost w-full" on:click={() => (showWeek = true)} data-testid="plan-week-open">
+          <span class="material-symbols-rounded" style="font-size:18px" aria-hidden="true">date_range</span> Plan the whole week instead
+        </button>
       </div>
     {/if}
   </div>
@@ -175,6 +190,7 @@
 
 <ActionSheet bind:open={menuOpen} title={menu && plan ? (plan.meals[menu.mealPos]?.items[menu.itemPos]?.food.name || '') : ''} actions={menuActions} on:select={onMenu} />
 <ShoppingListSheet bind:open={showList} />
+<WeekPlanSheet bind:open={showWeek} {saved} {dishes} {limits} {calorieGoal} {proteinGoal} />
 
 <style>
   .dp { display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; }
@@ -191,6 +207,8 @@
   .dp-thumb { width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--radius-sm); background: var(--accent-dim); display: flex; align-items: center; justify-content: center; }
   .dp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .dp-name { font-size: 15px; font-weight: 600; }
+  .dp-brand { font-weight: 400; color: var(--text-3); }
+  .dp-yours { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); vertical-align: 1px; }
   .dp-chev { color: var(--text-3); }
   .dp-total { margin-top: 10px; padding: 12px; border-radius: var(--radius-sm); background: var(--accent-dim); display: flex; flex-direction: column; gap: 2px; }
   .dp-note { margin: 0; font-size: 13px; line-height: 1.4; color: #eab308; }
