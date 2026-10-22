@@ -19,23 +19,36 @@ export async function ensureSavedFood(food, saved = []) {
   return { food: made, created: true };
 }
 
-/** Add `to` (already a food shape) to a meal on a date. Returns the saved food. */
+/** Add `to` (already a food shape) to a meal on a date. Returns { food, item } (item = the diary entry made). */
 export async function addSuggestedFood(to, { meal, date, saved = [], quantity = 1 }) {
   const { addDiaryItem } = await import('../stores/diary.js');
   const { food } = await ensureSavedFood(to, saved);
-  await addDiaryItem({
+  const item = await addDiaryItem({
     ...food, portion: food.portion || 100, unit: food.unit || 'g', quantity, nutrition: food.nutrition,
   }, meal, date);
-  return food;
+  return { food, item };
 }
 
-/** Replace a logged item with another food, in the same meal. */
+/** Replace a logged item with another food, in the same meal. Returns { food, item }. */
 export async function swapDiaryItem(from, to, { date, saved = [], quantity }) {
   const { removeDiaryItem, currentEntry } = await import('../stores/diary.js');
   const meal = Number(from.meal) || 0;
-  const food = await addSuggestedFood(to, { meal, date, saved, quantity: quantity ?? (parseFloat(to.quantity) || 1) });
+  const added = await addSuggestedFood(to, { meal, date, saved, quantity: quantity ?? (parseFloat(to.quantity) || 1) });
   const latest = get(currentEntry);
   const idx = (latest?.items || []).findIndex(i => from.uuid ? i.uuid === from.uuid : i.name === from.name);
   if (idx >= 0) await removeDiaryItem(idx);
-  return food;
+  return added;
+}
+
+/** Undo for an add: take the new entry back out. */
+export async function undoAdd(date, item) {
+  const { removeDiaryItemByUuid } = await import('../stores/diary.js');
+  return removeDiaryItemByUuid(date, item?.uuid);
+}
+
+/** Undo for a swap: take the new entry out and put the original back. */
+export async function undoSwap(date, original, added) {
+  const { removeDiaryItemByUuid, restoreDiaryItem } = await import('../stores/diary.js');
+  await removeDiaryItemByUuid(date, added?.uuid);
+  await restoreDiaryItem(date, original);
 }

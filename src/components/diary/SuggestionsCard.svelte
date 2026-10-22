@@ -2,23 +2,25 @@
   SuggestionsCard (fork): proactive ideas for the day on screen.
 
     • Drink swap: "Coca-Cola → Zero-sugar soda · saves 140 kcal, 39 g sugar"
-    • Protein gap: "38 g protein to go" with a few foods that fit the calories left
+    • Nutrient watch: "Sodium is at 112% of your limit · Pizza slice → Hamburger, 382 mg less"
+    • Protein / fiber gap: "38 g protein to go" with a few foods that fit the calories left
     • Planning: on a future day, the same help before anything is logged
 
   Everything is one tap to act on and one tap to hide for the day. Nothing here
   changes the diary until a button is pressed. Switch it all off in
-  Settings → Diary → Smart Suggestions. Rules live in lib/suggestions.js.
+  Settings → Diary → Smart Suggestions. Rules live in lib/suggestions.js and lib/day-suggestions.js.
 -->
 <script>
   import { onMount } from 'svelte';
   import { NtApi } from '../../lib/api.js';
   import { localDateStr } from '../../lib/db.js';
   import { COMMON_FOODS, commonFoodToFood } from '../../lib/common-foods.js';
-  import { suggestForDay, mealForSuggestion, mutedKey } from '../../lib/suggestions.js';
+  import { mealForSuggestion, mutedKey } from '../../lib/suggestions.js';
+  import { buildDaySuggestions } from '../../lib/day-suggestions.js';
   import { defaultMealForNow } from '../../lib/quick-add.js';
-  import { swapDiaryItem, addSuggestedFood } from '../../lib/suggestion-actions.js';
-  import { smartSuggestions, suggestSwaps, suggestProtein, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods } from '../../stores/settings.js';
-  import { showSuccess, showError } from '../../stores/toast.js';
+  import { swapDiaryItem, addSuggestedFood, undoAdd, undoSwap } from '../../lib/suggestion-actions.js';
+  import { smartSuggestions, suggestSwaps, suggestProtein, suggestNutrients, watchedNutrients, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods } from '../../stores/settings.js';
+  import { showSuccess, showError, showUndo } from '../../stores/toast.js';
   import FoodIcon from '../ui/FoodIcon.svelte';
   import ActionSheet from '../ui/ActionSheet.svelte';
 
@@ -27,6 +29,7 @@
   export let completed = false;
   export let calorieGoal = null;
   export let proteinGoal = null;
+  export let limits = {};   // the user's goals for sodium, saturated fat, fat, sugar, fiber
 
   let saved = [];
   let busy = '';
@@ -40,13 +43,19 @@
   $: today = localDateStr();
   $: dismissedToday = ($dismissedSuggestions || {})[date] || [];
   $: s = $smartSuggestions
-    ? suggestForDay({
-        date, today, items, completed, proteinGoal, calorieGoal, saved, common,
+    ? buildDaySuggestions({
+        date, today, items, completed, proteinGoal, calorieGoal, saved, common, limits,
         enabled: { swaps: $suggestSwaps, protein: $suggestProtein }, dismissed: dismissedToday,
+        nutrients: $suggestNutrients, watched: $watchedNutrients || [],
         level: $suggestionLevel, muted: $mutedSuggestionFoods || [],
       })
-    : { state: 'past', swaps: [], protein: null, planning: false };
-  $: count = s.swaps.length + (s.protein ? 1 : 0);
+    : { state: 'past', swaps: [], protein: null, fiber: null, nutrients: [], planning: false };
+  // Protein and fiber share one "foods that close the gap" block.
+  $: gaps = [
+    s.protein && { ...s.protein, nutrient: 'protein', unit: 'g' },
+    s.fiber && { ...s.fiber, nutrient: 'fiber', unit: 'g' },
+  ].filter(Boolean);
+  $: count = s.swaps.length + s.nutrients.length + gaps.length;
   $: names = $mealNames || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
 
   function dismiss(id) {
@@ -61,9 +70,9 @@
     if (busy) return;
     busy = sw.id;
     try {
-      const food = await swapDiaryItem(sw.from, sw.to, { date, saved, quantity: sw.to.quantity });
+      const { food, item: added } = await swapDiaryItem(sw.from, sw.to, { date, saved, quantity: sw.to.quantity });
       if (food && !saved.some(f => f.id === food.id)) saved = [...saved, food];
-      showSuccess(`Swapped to ${sw.to.name}`);
+      showUndo(`Swapped to ${sw.to.name}`, () => undoSwap(date, sw.from, added));
     } catch (e) { showError(e?.message || 'Could not swap that'); }
     busy = '';
   }
@@ -73,9 +82,9 @@
     busy = idea.food.name;
     try {
       const meal = mealForSuggestion({ state: s.state, items, mealCount: names.length, timeMeal: defaultMealForNow(names.length) });
-      const food = await addSuggestedFood(idea.food, { meal, date, saved });
+      const { food, item: added } = await addSuggestedFood(idea.food, { meal, date, saved });
       if (food && !saved.some(f => f.id === food.id)) saved = [...saved, food];
-      showSuccess(`Added ${idea.food.name} to ${names[meal] || 'meal'}`);
+      showUndo(`Added ${idea.food.name} to ${names[meal] || 'meal'}`, () => undoAdd(date, added));
     } catch (e) { showError(e?.message || 'Could not add that'); }
     busy = '';
   }
@@ -84,13 +93,13 @@
   let menuOpen = false;
   let menu = null;      // { id, label, actions:[{label,icon,value}] }
   function openMenu(kind, payload) {
-    if (kind === 'swap') {
+    if (kind !== 'gap') {
       menu = { id: payload.id, title: payload.from.name, actions: [
         { label: 'Hide for today', icon: 'visibility_off', value: 'hide' },
         { label: `Never suggest changes for ${payload.from.name}`, icon: 'block', value: `mute:${payload.from.name}` },
       ] };
     } else {
-      menu = { id: payload.id, title: 'Protein ideas', actions: [
+      menu = { id: payload.id, title: payload.nutrient === 'fiber' ? 'Fiber ideas' : 'Protein ideas', actions: [
         { label: 'Hide for today', icon: 'visibility_off', value: 'hide' },
         ...payload.ideas.map(i => ({ label: `Never suggest ${i.food.name}`, icon: 'block', value: `mute:${i.food.name}` })),
       ] };
@@ -134,24 +143,37 @@
         </div>
       {/each}
 
-      {#if s.protein}
-        <div class="sg-item sg-col" data-testid="suggestion-protein">
+      {#each s.nutrients as n (n.id)}
+        <div class="sg-item" data-testid="suggestion-nutrient">
+          <div class="sg-body">
+            <div class="sg-line"><strong>{n.label}</strong> is at {Math.round(n.ratio * 100)}% of your {n.limitSource === 'goal' ? 'goal' : 'daily limit'}</div>
+            <div class="sg-sub">{n.from.name} <span class="sg-arrow">→</span> {n.to.name} · {n.why}</div>
+          </div>
+          <button type="button" class="sg-act" disabled={!!busy} on:click={() => swap(n)} data-testid="swap-btn">Swap</button>
+          <button type="button" class="sg-x" aria-label="Hide or stop this suggestion" on:click={() => openMenu('swap', n)}>
+            <span class="material-symbols-rounded" aria-hidden="true">close</span>
+          </button>
+        </div>
+      {/each}
+
+      {#each gaps as g (g.id)}
+        <div class="sg-item sg-col" data-testid="suggestion-{g.nutrient}">
           <div class="sg-row">
             <div class="sg-body">
-              <div class="sg-line"><strong>{s.protein.gap} g protein</strong> {s.planning ? 'to plan for' : 'to go'}</div>
-              <div class="sg-sub">{s.protein.tight ? 'Calories are tight, so these are lean picks.' : 'These fit the calories you have left.'}</div>
+              <div class="sg-line"><strong>{g.gap} {g.unit} {g.nutrient}</strong> {s.planning ? 'to plan for' : 'to go'}</div>
+              <div class="sg-sub">{g.tight ? 'Calories are tight, so these are lean picks.' : 'These fit the calories you have left.'}</div>
             </div>
-            <button type="button" class="sg-x" aria-label="Hide or stop this suggestion" on:click={() => openMenu('protein', s.protein)}>
+            <button type="button" class="sg-x" aria-label="Hide or stop this suggestion" on:click={() => openMenu('gap', g)}>
               <span class="material-symbols-rounded" aria-hidden="true">close</span>
             </button>
           </div>
           <ul class="sg-ideas">
-            {#each s.protein.ideas as idea (idea.food.name)}
+            {#each g.ideas as idea (idea.food.name)}
               <li class="sg-idea">
                 <span class="sg-thumb"><FoodIcon name={idea.food.name} icon={idea.food.icon} brand={idea.food.brand} emoji={idea.food.emoji} size={22} /></span>
                 <span class="sg-body">
                   <span class="sg-line sg-name">{idea.food.name}</span>
-                  <span class="sg-sub">{idea.food.portion} {idea.food.unit} · {idea.protein} g protein · {idea.kcal} kcal{idea.saved ? ' · yours' : ''}</span>
+                  <span class="sg-sub">{idea.food.portion} {idea.food.unit} · {idea.amount} g {g.nutrient} · {idea.kcal} kcal{idea.saved ? ' · yours' : ''}</span>
                 </span>
                 <button type="button" class="sg-add" aria-label="Add {idea.food.name}" disabled={!!busy} on:click={() => addIdea(idea)} data-testid="idea-add">
                   <span class="material-symbols-rounded" aria-hidden="true">add</span>
@@ -160,7 +182,7 @@
             {/each}
           </ul>
         </div>
-      {/if}
+      {/each}
     {/if}
   </section>
 {/if}

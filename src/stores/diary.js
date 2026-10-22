@@ -327,6 +327,7 @@ export async function addDiaryItem(foodItem, meal, date, opts = {}) {
       : NtApi.markFoodUsed(item.id, targetDate);
     usageUpdate.catch(() => {});
   }
+  return item; // fork: callers (Undo) need the uuid of what was just logged
 }
 
 /** Add a "Quick Calories" entry to the diary — a calorie-(plus-optional-
@@ -798,4 +799,37 @@ export function nextDay() {
   const dt = new Date(d + 'T12:00:00');
   dt.setDate(dt.getDate() + 1);
   loadEntry(localDateStr(dt));
+}
+
+/**
+ * Fork: remove one item by uuid from ANY day (Undo of an add). Unlike
+ * removeDiaryItem this does not depend on which day is on screen.
+ * Returns true if something was removed.
+ */
+export async function removeDiaryItemByUuid(date, uuid) {
+  if (!uuid) return false;
+  let found = false;
+  await _refetchAndSave(date, (entry) => {
+    const idx = (entry.items || []).findIndex(i => i.uuid === uuid);
+    if (idx < 0) return null;
+    found = true;
+    const removed = entry.items[idx];
+    const prior = entry._pendingDeletions || { items: [], water: [] };
+    return {
+      ...entry,
+      items: entry.items.filter((_, i) => i !== idx),
+      _pendingDeletions: { items: [...(prior.items || []), removed.uuid], water: prior.water || [] },
+    };
+  });
+  return found;
+}
+
+/**
+ * Fork: put a removed item back (Undo of a swap). It gets a NEW uuid so a
+ * delete that already synced can't take the restored copy with it.
+ */
+export async function restoreDiaryItem(date, item) {
+  if (!item) return;
+  const { _i, ...rest } = item;
+  await _refetchAndSave(date, (entry) => ({ ...entry, items: [...(entry.items || []), { ...rest, uuid: _newUuid() }] }));
 }

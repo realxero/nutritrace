@@ -21,10 +21,11 @@
   import FoodIcon from '../ui/FoodIcon.svelte';
   import { dayTotals, itemTotals, mutedKey } from '../../lib/suggestions.js';
   import { findBetterOptions, goalFocus, FOCUS_LABEL } from '../../lib/better-options.js';
+  import { limitFor, WATCH } from '../../lib/day-suggestions.js';
   import { askForAlternatives, traceQuestion } from '../../lib/ai-alternatives.js';
-  import { swapDiaryItem } from '../../lib/suggestion-actions.js';
+  import { swapDiaryItem, undoSwap } from '../../lib/suggestion-actions.js';
   import { aiEffectivelyEnabled, photoLogWebSearch, targetWeightKg, mutedSuggestionFoods } from '../../stores/settings.js';
-  import { showSuccess, showError } from '../../stores/toast.js';
+  import { showSuccess, showError, showUndo } from '../../stores/toast.js';
 
   export let open = false;
   export let item = null;
@@ -32,9 +33,10 @@
   export let date = '';
   export let calorieGoal = null;
   export let proteinGoal = null;
+  export let limits = {};
 
   const dispatch = createEventDispatcher();
-  const FOCI = [['lose', 'Lose'], ['gain', 'Gain'], ['protein', 'Protein'], ['balanced', 'Balanced']];
+  const FOCI = [['lose', 'Lose'], ['gain', 'Gain'], ['protein', 'Protein'], ['sodium', 'Sodium'], ['fat', 'Fat'], ['saturated-fat', 'Sat. fat'], ['sugars', 'Sugar'], ['fiber', 'Fiber'], ['balanced', 'Overall']];
 
   let saved = [];
   let adaptive = null;
@@ -61,10 +63,17 @@
     protein: proteinGoal > 0 ? proteinGoal - totals.proteins : NaN,
   };
   $: currentKg = adaptive?.trendWeightKg ?? adaptive?.latestWeightKg ?? (Number(DB.getSetting('weight_kg', 0)) || null);
-  $: autoFocus = goalFocus({ targetKg: Number($targetWeightKg) || null, currentKg, proteinGap: Number.isFinite(remaining.protein) ? remaining.protein : 0 });
+  // A nutrient already past its limit today (sodium, fat, saturated fat, sugar) becomes the default focus.
+  $: overNutrient = ['sodium', 'saturated-fat', 'fat', 'sugars'].find(n => {
+    const lim = limitFor(n, limits);
+    return lim && totals[n] >= lim.value;
+  }) || null;
+  $: autoFocus = goalFocus({ targetKg: Number($targetWeightKg) || null, currentKg, over: overNutrient, proteinGap: Number.isFinite(remaining.protein) ? remaining.protein : 0 });
   $: focus = focusPick || autoFocus;
   $: focusLabel = FOCUS_LABEL[focus];
-  $: cur = item ? itemTotals(item) : { calories: 0, proteins: 0, sugars: 0 };
+  $: focusNutrient = (['sodium', 'fat', 'saturated-fat', 'fiber'].includes(focus) && item)
+    ? `${Math.round(cur[focus] * 10) / 10} ${WATCH[focus].unit} ${WATCH[focus].label.toLowerCase()}` : '';
+  $: cur = item ? itemTotals(item) : itemTotals(null);
   $: local = item ? findBetterOptions(item, { focus, saved, muted: $mutedSuggestionFoods || [] }) : { kind: 'none', options: [] };
   $: avoid = [...($mutedSuggestionFoods || [])];
 
@@ -88,8 +97,9 @@
     if (busy || !item) return;
     busy = label;
     try {
-      await swapDiaryItem(item, food, { date, saved, quantity });
-      showSuccess(`Swapped to ${food.name}`);
+      const original = item;
+      const { item: added } = await swapDiaryItem(original, food, { date, saved, quantity });
+      showUndo(`Swapped to ${food.name}`, () => undoSwap(date, original, added));
       open = false;
     } catch (e) { showError(e?.message || 'Could not swap that'); }
     busy = '';
@@ -123,7 +133,7 @@
         <span class="bo-thumb"><FoodIcon name={item.name} icon={item.icon} brand={item.brand} emoji={item.emoji} size={24} /></span>
         <div class="bo-cur-text">
           <div class="bo-cur-name">{item.name}</div>
-          <div class="bo-sub">{Math.round(cur.calories)} kcal · {Math.round(cur.proteins)} g protein{cur.sugars >= 1 ? ` · ${Math.round(cur.sugars)} g sugar` : ''}</div>
+          <div class="bo-sub">{Math.round(cur.calories)} kcal · {Math.round(cur.proteins)} g protein{cur.sugars >= 1 ? ` · ${Math.round(cur.sugars)} g sugar` : ''}{focusNutrient ? ` · ${focusNutrient}` : ''}</div>
         </div>
       </div>
 
@@ -133,7 +143,7 @@
           <button type="button" role="radio" aria-checked={focus === key} class="bo-chip" class:on={focus === key} on:click={() => (focusPick = key)}>{label}</button>
         {/each}
       </div>
-      <p class="bo-sub bo-goal">Looking for options that suit <strong>{focusLabel}</strong>{focusPick ? '' : ' (from your goal)'}.</p>
+      <p class="bo-sub bo-goal">Looking for options that suit <strong>{focusLabel}</strong>{focusPick ? '' : overNutrient && focus === overNutrient ? ' (it is past its limit today)' : ' (from your goal)'}.</p>
 
       <h3 class="bo-h">Quick options</h3>
       {#if local.options.length}

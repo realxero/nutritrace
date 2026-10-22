@@ -966,6 +966,13 @@
   $: fatGoal   = _macroGoal('fat', $currentDate);
   $: carbGoal  = _macroGoal('carbohydrates', $currentDate);
   $: protGoal  = _macroGoal('proteins', $currentDate);
+  // Fork: the user's own limits for the nutrient watch (null = no goal set, so the standard value applies or it is skipped).
+  function _watchLimit(id) { const g = $goals?.[id]; if (!g || (id !== 'fiber' && g.isMin)) return null; return _macroGoal(id, $currentDate); }
+  let nutrientLimits = {};
+  $: { $goals; caloriesGoal; nutrientLimits = {
+    sodium: _watchLimit('sodium'), 'saturated-fat': _watchLimit('saturated-fat'),
+    fat: _watchLimit('fat'), sugars: _watchLimit('sugars'), fiber: _watchLimit('fiber'),
+  }; }
   $: calPct    = Math.min(100, ((totals.calories||0) / caloriesGoalAdjusted) * 100);
 
   function formatDate(d) {
@@ -2254,7 +2261,7 @@
     {/if}
     <!-- Fork: proactive suggestions (drink swaps, protein ideas); Settings → Diary → Smart Suggestions -->
     <SuggestionsCard date={$currentDate} items={entry.items || []} completed={_dayIsComplete}
-      calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} />
+      calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />
     <!-- Meal groups. Rendered via a Svelte 5 snippet `mealCard` so we
          can consume it twice below — once per column (mealsLeft +
          mealsRight) — without duplicating ~230 lines of card markup.
@@ -3569,7 +3576,7 @@
 <QuickCaloriesSheet bind:open={_quickSheetOpen} meal={_quickSheetMeal} mealName={meals[_quickSheetMeal] || ''} />
 
 <BetterOptionSheet bind:open={showBetter} item={betterItem} items={entry.items || []} date={$currentDate}
-  calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} />
+  calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />
 
 <ActionSheet
   bind:open={showActivityAction}

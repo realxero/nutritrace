@@ -1,23 +1,3 @@
-// Fork: extras for the goal-weight projection. EMA smooths day-to-day water
-// swings; recent intake is the last 14 days, logged days only.
-function _projectionExtras(series) {
-  const ALPHA = 0.15;
-  let ema = null, latest = null;
-  for (const s of series) {
-    if (s.weight == null) continue;
-    ema = ema == null ? s.weight : ema + ALPHA * (s.weight - ema);
-    latest = s.weight;
-  }
-  const recent = series.slice(-14).filter(s => s.intake != null && s.intake > 0);
-  const avg = recent.length ? recent.reduce((a, s) => a + s.intake, 0) / recent.length : null;
-  return {
-    trendWeightKg: ema == null ? null : Math.round(ema * 100) / 100,
-    latestWeightKg: latest == null ? null : Math.round(latest * 100) / 100,
-    recentAvgIntake: avg == null ? null : Math.round(avg),
-    recentLoggedDays: recent.length,
-  };
-}
-
 /**
  * adaptive-tdee-local.js — client-side mirror of server/lib/adaptive-tdee.js.
  *
@@ -38,6 +18,29 @@ function _projectionExtras(series) {
  */
 
 import { getDb, LOCAL_USER_ID } from './db-native.js';
+
+// Fork: extras for the goal-weight projection. EMA smooths day-to-day water
+// swings; recent intake is the last 14 days, logged days only.
+function _projectionExtras(series) {
+  const ALPHA = 0.15;
+  let ema = null, latest = null;
+  const weightSeries = []; // for the trend chart: measured dots (m) and the smoothed line (t)
+  for (const s of series) {
+    if (s.weight == null) continue;
+    ema = ema == null ? s.weight : ema + ALPHA * (s.weight - ema);
+    latest = s.weight;
+    weightSeries.push({ d: s.date, kg: Math.round(s.weight * 100) / 100, m: s.weightSource !== 'interpolated', t: Math.round(ema * 100) / 100 });
+  }
+  const recent = series.slice(-14).filter(s => s.intake != null && s.intake > 0);
+  const avg = recent.length ? recent.reduce((a, s) => a + s.intake, 0) / recent.length : null;
+  return {
+    trendWeightKg: ema == null ? null : Math.round(ema * 100) / 100,
+    latestWeightKg: latest == null ? null : Math.round(latest * 100) / 100,
+    recentAvgIntake: avg == null ? null : Math.round(avg),
+    recentLoggedDays: recent.length,
+    weightSeries,
+  };
+}
 
 const KCAL_PER_KG = 7700;
 const LB_TO_KG = 1 / 2.20462;

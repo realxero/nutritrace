@@ -49,7 +49,7 @@ export const USER_PREFS = new Set([
   'statsMetricOrder','statsHiddenMetrics',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
-  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','activity','tdee',
+  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','activity','tdee',
   // Native local-mode profile fields (no auth → no users table; these stand in for
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
@@ -563,6 +563,9 @@ export const dismissedSuggestions = createSettingStore('dismissedSuggestions', {
 export const suggestionLevel = createSettingStore('suggestionLevel', 'balanced');
 // Foods the user never wants suggestions for (neither flagged when logged nor offered).
 export const mutedSuggestionFoods = createSettingStore('mutedSuggestionFoods', []);
+// Nutrient watch: sodium, saturated fat, fat, sugar and fiber against the day's limits.
+export const suggestNutrients  = createSettingStore('suggestNutrients',  true);
+export const watchedNutrients  = createSettingStore('watchedNutrients',  ['sodium', 'saturated-fat', 'fat', 'sugars', 'fiber']);
 foodOverrides.subscribe((v) => setFoodOverrides(v));
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group

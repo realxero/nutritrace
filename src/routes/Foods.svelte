@@ -24,7 +24,7 @@
   import { decimalInput, parseDecimal } from '../lib/decimal-input.js';
   import { scaleFactor as _unitScaleFactor, unitSystem as _unitSystem, amountAndUnit } from '../lib/units.js';
   import { diaryPromptQuantity, warnUnitMismatch, showUnitMetadata, forceMobileLayout } from '../stores/settings.js';
-  import { showSuccess, showError, showToast } from '../stores/toast.js';
+  import { showSuccess, showError, showToast, showUndo } from '../stores/toast.js';
   import { staleIngredientNames } from '../lib/stale-ingredients.js';
   import { editorState, clearFoodEditorState } from '../stores/editorState.js';
   import { DB, localDateStr } from '../lib/db.js';
@@ -1112,10 +1112,15 @@
       quantity: 1,
       nutrition: savedFood.nutrition,
     };
-    await addDiaryItem(item, chosenMeal);
+    // Fork: the day it lands on (same rule addDiaryItem uses), so Undo can find it.
+    const { currentDate: _cd, removeDiaryItemByUuid } = await import('../stores/diary.js');
+    let _viewDate = null; _cd.subscribe(v => _viewDate = v)();
+    const _landsOn = _viewDate || localDateStr();
+    const _added = await addDiaryItem(item, chosenMeal);
     editorState.lastMealAdded = chosenMeal;
     const names = mealNames.get() || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
-    showSuccess($_('foods.detail.added_to', { values: { meal: names[chosenMeal] || 'meal' } }));
+    showUndo($_('foods.detail.added_to', { values: { meal: names[chosenMeal] || 'meal' } }),
+      () => removeDiaryItemByUuid(_landsOn, _added?.uuid));
   }
 
   function openMealEditor(item, isRecipe) {

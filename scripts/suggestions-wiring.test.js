@@ -25,7 +25,7 @@ test('settings: a master switch and one per kind, all synced preferences, defaul
 
 test('the card turns off with the master switch and acts only on a button press', () => {
   const c = read('src/components/diary/SuggestionsCard.svelte');
-  assert.match(c, /\$smartSuggestions\s*\n?\s*\? suggestForDay/);
+  assert.match(c, /\$smartSuggestions\s*\n?\s*\? buildDaySuggestions/);
   assert.match(c, /on:click=\{\(\) => swap\(sw\)\}/);
   assert.match(c, /on:click=\{\(\) => addIdea\(idea\)\}/);
   // the swap itself lives in suggestion-actions: new food first, original removed by uuid

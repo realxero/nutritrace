@@ -1,6 +1,7 @@
 <script>
   import { fly, fade } from 'svelte/transition';
-  import { toasts } from '../../stores/toast.js';
+  import { toasts, dismissToast } from '../../stores/toast.js';
+  async function runAction(t) { dismissToast(t.id); try { await t.action.onClick(); } catch (e) { console.warn('[toast] action failed', e); } }
 </script>
 
 <div class="toast-container" aria-live="polite">
@@ -16,6 +17,9 @@
         <span class="material-symbols-rounded toast-icon">error</span>
       {/if}
       <span class="toast-msg">{toast.message}</span>
+      {#if toast.action}
+        <button type="button" class="toast-action" on:click={() => runAction(toast)}>{toast.action.label}</button>
+      {/if}
     </div>
   {/each}
 </div>
@@ -34,6 +38,7 @@
     max-width: calc(100vw - 32px);
     width: max-content; /* fork: with left:50% the auto width was capped at half the screen */
   }
+  .toast-action { pointer-events: auto; min-height: 36px; padding: 0 10px; margin: -6px -8px -6px 4px; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; }
   .toast {
     display: flex;
     align-items: center;

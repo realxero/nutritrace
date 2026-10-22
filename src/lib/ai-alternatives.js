@@ -22,7 +22,7 @@ Rules:
 - 3 alternatives, best first. They must replace the logged food for the same purpose (a drink for a drink, a snack for a snack, a meal for a meal), similar taste or format, easy to find in ordinary stores or on common menus.
 - Nutrition is for the serving given, using the same units as the serving. Be accurate; if you are not sure of a brand's exact numbers use a generic version of the food and set source "estimate".
 - source "web" or "label" only if you actually looked the product up; never claim it otherwise. Do not invent brands or products.
-- Respect the goal: losing weight = fewer calories with protein kept; gaining = more calories and protein; protein = more protein per calorie; balanced = less sugar and fewer calories.
+- Respect the goal: losing weight = fewer calories with protein kept; gaining = more calories and protein; protein = more protein per calorie; balanced = less sugar and fewer calories; less sodium / less fat / less saturated fat / less sugar = a clearly lower amount of that nutrient without much more of the others; more fiber = clearly more fiber for similar calories.
 - Never suggest anything in the avoid list.`;
 
 /** The user message: the food, the goal, what is left today, what to avoid. */

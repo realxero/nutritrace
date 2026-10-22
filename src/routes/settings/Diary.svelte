@@ -12,7 +12,7 @@
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     showQuickCalories, quickCaloriesDisplay,
     diaryShowNutritionBar,
-    smartSuggestions, suggestSwaps, suggestProtein, suggestionLevel, mutedSuggestionFoods,
+    smartSuggestions, suggestSwaps, suggestProtein, suggestNutrients, watchedNutrients, suggestionLevel, mutedSuggestionFoods,
     diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
     diaryRailShowActivity as diaryRailShowActivityWidget,
     diaryRailShowNotes,
@@ -22,6 +22,13 @@
   } from '../../stores/settings.js';
   import { isNative, getServerUrl } from '../../lib/platform.js';
   import { LEVELS, mutedKey } from '../../lib/suggestions.js';
+  import { WATCH } from '../../lib/day-suggestions.js';
+
+  const WATCH_HINT = { sodium: 'standard 2,300 mg', 'saturated-fat': 'standard 20 g', fat: 'needs a goal', sugars: 'needs a goal', fiber: 'standard 28 g' };
+  const toggleWatched = (id) => {
+    const have = $watchedNutrients || [];
+    watchedNutrients.set(have.includes(id) ? have.filter(x => x !== id) : [...have, id]);
+  };
 
   // Fork: Smart Suggestions — never-suggest list
   let _muteInput = '';
@@ -132,6 +139,19 @@
     <SettingRow label="Protein ideas" desc="When protein is behind your goal, suggest foods that fit the calories you have left.">
       <Toggle checked={$suggestProtein} disabled={!$smartSuggestions} on:change={e => suggestProtein.set(e.detail)} />
     </SettingRow>
+    <SettingRow label="Nutrient watch" desc="When sodium, fat, saturated fat or sugar is near its daily limit, suggest a lighter swap for the biggest contributor. When fiber is behind, suggest foods that add it.">
+      <Toggle checked={$suggestNutrients} disabled={!$smartSuggestions} on:change={e => suggestNutrients.set(e.detail)} />
+    </SettingRow>
+    <div class="sg-level" data-testid="watched-nutrients">
+      <div class="sg-level-label">Nutrients to watch</div>
+      <div class="sg-chips">
+        {#each Object.entries(WATCH) as [id, w]}
+          <button type="button" class="sg-chip" class:on={($watchedNutrients || []).includes(id)} aria-pressed={($watchedNutrients || []).includes(id)}
+            disabled={!$smartSuggestions || !$suggestNutrients} on:click={() => toggleWatched(id)}>{w.label}</button>
+        {/each}
+      </div>
+      <p class="sg-level-desc">Uses the goal you set on the Goals page. With none: {Object.entries(WATCH).map(([id, w]) => `${w.label.toLowerCase()} ${WATCH_HINT[id]}`).join(', ')}.</p>
+    </div>
     <div class="sg-level" data-testid="suggestion-level">
       <div class="sg-level-label">How strict</div>
       <div class="sg-level-seg" role="radiogroup" aria-label="How strict suggestions are">
@@ -403,4 +423,8 @@
   .sg-muted-list .material-symbols-rounded { font-size: 18px; }
   .sg-muted-add { display: flex; gap: 8px; margin-top: 12px; }
   .sg-muted-add .input { flex: 1; min-width: 0; font-size: 16px; }
+  .sg-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sg-chip { min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .sg-chip.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .sg-chip:disabled { opacity: .5; cursor: default; }
 </style>

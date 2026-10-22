@@ -24,9 +24,10 @@ const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0;
  * mid-afternoon to talk about protein; Thorough also notices smaller ones.
  */
 export const LEVELS = {
-  gentle:   { label: 'Gentle',   minSugarG: 25, minSaveKcal: 60, minGapG: 30, ideas: 2, minHourToday: 15 },
-  balanced: { label: 'Balanced', minSugarG: 12, minSaveKcal: 30, minGapG: 15, ideas: 3, minHourToday: 0 },
-  thorough: { label: 'Thorough', minSugarG: 6,  minSaveKcal: 15, minGapG: 8,  ideas: 4, minHourToday: 0 },
+  // nutrientRatio: how close to a daily limit before speaking up (1 = only once over it)
+  gentle:   { label: 'Gentle',   minSugarG: 25, minSaveKcal: 60, minGapG: 30, minFiberGapG: 14, ideas: 2, minHourToday: 15, nutrientRatio: 1.0,  nutrientRows: 1 },
+  balanced: { label: 'Balanced', minSugarG: 12, minSaveKcal: 30, minGapG: 15, minFiberGapG: 9,  ideas: 3, minHourToday: 0,  nutrientRatio: 0.85, nutrientRows: 2 },
+  thorough: { label: 'Thorough', minSugarG: 6,  minSaveKcal: 15, minGapG: 8,  minFiberGapG: 5,  ideas: 4, minHourToday: 0,  nutrientRatio: 0.7,  nutrientRows: 3 },
 };
 export const levelOf = (name) => LEVELS[name] || LEVELS.balanced;
 
@@ -43,25 +44,29 @@ export function isMuted(name, muted = []) {
   });
 }
 
+/** Nutrients the engine reads from a food (quantity-scaled). */
+export const KEYS = ['calories', 'proteins', 'sugars', 'carbohydrates', 'fat', 'saturated-fat', 'sodium', 'fiber'];
+const zero = () => Object.fromEntries(KEYS.map(k => [k, 0]));
+const add = (a, b) => { for (const k of KEYS) a[k] += b[k]; return a; };
+
 /** Per-item totals for the keys we use (quantity-scaled; split recipes summed). */
 export function itemTotals(item) {
-  if (!item) return { calories: 0, proteins: 0, sugars: 0 };
+  const out = zero();
+  if (!item) return out;
   if (Array.isArray(item._splitItems) && item._splitItems.length) {
-    return item._splitItems.reduce((a, c) => {
-      const t = itemTotals(c);
-      return { calories: a.calories + t.calories, proteins: a.proteins + t.proteins, sugars: a.sugars + t.sugars };
-    }, { calories: 0, proteins: 0, sugars: 0 });
+    for (const c of item._splitItems) add(out, itemTotals(c));
+    return out;
   }
   const q = num(item.quantity) || 1;
   const n = item.nutrition || {};
-  return { calories: num(n.calories) * q, proteins: num(n.proteins) * q, sugars: num(n.sugars) * q };
+  for (const k of KEYS) out[k] = num(n[k]) * q;
+  return out;
 }
 
 export function dayTotals(items) {
-  return (items || []).reduce((a, i) => {
-    const t = itemTotals(i);
-    return { calories: a.calories + t.calories, proteins: a.proteins + t.proteins, sugars: a.sugars + t.sugars };
-  }, { calories: 0, proteins: 0, sugars: 0 });
+  const out = zero();
+  for (const i of items || []) add(out, itemTotals(i));
+  return out;
 }
 
 /** 'past' | 'today' | 'future' for 'YYYY-MM-DD' strings. */
@@ -158,36 +163,40 @@ export function findSwaps(items, saved = [], { level = 'balanced', muted = [], i
 
 /* ── Protein gap ────────────────────────────────────────────────────── */
 
-const MIN_PROTEIN_PER_SERVING = 8;
-const MIN_PROTEIN_PER_KCAL = 0.075;   // ≥ 7.5 g per 100 kcal: a lean source, not "a bit of protein"
+/** What counts as a good source of each nutrient we suggest foods for. */
+export const GAP_SPEC = {
+  proteins: { label: 'protein', unit: 'g', minPerServing: 8, minPerKcal: 0.075, gapKey: 'minGapG' },
+  fiber:    { label: 'fiber',   unit: 'g', minPerServing: 4, minPerKcal: 0.03,  gapKey: 'minFiberGapG' },
+};
 const NOT_A_FIT = /\b(chips?|cookie|candy|cake|donut|doughnut|ice cream|soda|juice|bar)\b/i;
 
-function candidateFrom(food, { saved }) {
+function candidateFrom(food, nutrient, { saved }) {
+  const spec = GAP_SPEC[nutrient];
   const n = food?.nutrition || {};
-  const p = num(n.proteins), k = num(n.calories);
-  if (!food?.name || k <= 0 || p < MIN_PROTEIN_PER_SERVING) return null;
-  if (p / k < MIN_PROTEIN_PER_KCAL) return null;
-  if (NOT_A_FIT.test(food.name) && !/protein/i.test(food.name)) return null;
-  return { food, protein: r0(p), kcal: r0(k), saved: !!saved, uses: num(food.usage_count) };
+  const p = num(n[nutrient]), k = num(n.calories);
+  if (!food?.name || k <= 0 || p < spec.minPerServing) return null;
+  if (p / k < spec.minPerKcal) return null;
+  if (NOT_A_FIT.test(food.name) && !/protein|fiber/i.test(food.name)) return null;
+  return { food, amount: r0(p), protein: nutrient === 'proteins' ? r0(p) : undefined, kcal: r0(k), saved: !!saved, uses: num(food.usage_count) };
 }
 
 /**
- * Foods that would close a protein gap.
+ * Foods that would close a gap in a "get enough" nutrient (protein, fiber).
  * @param {object} p
  * @param {Array}  p.items        the day's diary items
- * @param {number|null} p.proteinGoal
+ * @param {number|null} p.goal    the day's target for the nutrient
+ * @param {'proteins'|'fiber'} p.nutrient
  * @param {number|null} p.calorieGoal
  * @param {Array}  p.saved        the user's saved foods
  * @param {Array}  p.common       built-in foods already converted to app foods
- * @param {number} p.limit
  */
-export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal = null, saved = [], common = [], limit, level = 'balanced', muted = [] } = {}) {
+export function findGapIdeas({ nutrient = 'proteins', goal = null, items = [], calorieGoal = null, saved = [], common = [], limit, level = 'balanced', muted = [] } = {}) {
   const L = levelOf(level);
   limit = limit ?? L.ideas;
-  if (!(proteinGoal > 0)) return { gap: 0, ideas: [], tight: false };
+  if (!(goal > 0)) return { gap: 0, ideas: [], tight: false };
   const t = dayTotals(items);
-  const gap = r0(proteinGoal - t.proteins);
-  if (gap < L.minGapG) return { gap: Math.max(gap, 0), ideas: [], tight: false };
+  const gap = r0(goal - t[nutrient]);
+  if (gap < L[GAP_SPEC[nutrient].gapKey]) return { gap: Math.max(gap, 0), ideas: [], tight: false };
 
   const calLeft = calorieGoal > 0 ? calorieGoal - t.calories : null;
   const tight = calLeft != null && calLeft < 150;
@@ -195,17 +204,17 @@ export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal =
   const eaten = new Set((items || []).map(i => String(i?.name || '').toLowerCase()));
 
   const pool = [];
-  for (const f of saved || []) { if (f && !f.deleted_at) { const c = candidateFrom(f, { saved: true }); if (c) pool.push(c); } }
-  for (const f of common || []) { const c = candidateFrom(f, { saved: false }); if (c) pool.push(c); }
+  for (const f of saved || []) { if (f && !f.deleted_at) { const c = candidateFrom(f, nutrient, { saved: true }); if (c) pool.push(c); } }
+  for (const f of common || []) { const c = candidateFrom(f, nutrient, { saved: false }); if (c) pool.push(c); }
 
   const scored = pool
     .filter(c => c.kcal <= kcalCap && !eaten.has(c.food.name.toLowerCase()) && !isMuted(c.food.name, muted))
     .map(c => {
-      const density = c.protein / c.kcal;
-      const useful = Math.min(c.protein, gap);
+      const density = c.amount / c.kcal;
+      const useful = Math.min(c.amount, gap);
       const calFit = calLeft == null ? 0 : (c.kcal / Math.max(calLeft, 150)) * 10;
       // Foods you already log beat a slightly better stranger, but only once they are habits.
-      const score = useful + density * 40 + (c.saved ? 12 + Math.min(c.uses, 10) * 2 : 0) - calFit;
+      const score = useful + density * (nutrient === 'fiber' ? 120 : 40) + (c.saved ? 12 + Math.min(c.uses, 10) * 2 : 0) - calFit;
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score);
@@ -221,6 +230,11 @@ export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal =
     if (ideas.length >= limit) break;
   }
   return { gap, ideas, tight };
+}
+
+/** Protein ideas (kept for callers and tests): findGapIdeas for protein. */
+export function findProteinIdeas({ proteinGoal = null, ...rest } = {}) {
+  return findGapIdeas({ ...rest, nutrient: 'proteins', goal: proteinGoal });
 }
 
 /* ── Putting it together for one day ───────────────────────────────── */

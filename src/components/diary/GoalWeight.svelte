@@ -15,6 +15,7 @@
   import { projectFromAdaptive, statusText, daysBetween } from '../../lib/goal-projection.js';
   import { goals, energyUnit, weightUnit, targetWeightKg, targetWeightDate } from '../../stores/settings.js';
   import DateInput from '../ui/DateInput.svelte';
+  import WeightTrendChart from './WeightTrendChart.svelte';
 
   const LB = 2.20462;
   let adaptive = null;
@@ -121,6 +122,10 @@
       </p>
     {:else}
       <p class="gw-note" data-testid="gw-status">{statusText(r)}{#if r.status === 'no-estimate' && r.needMoreDays > 0} Log {r.needMoreDays} more {r.needMoreDays === 1 ? 'day' : 'days'}.{/if}</p>
+    {/if}
+
+    {#if (adaptive?.weightSeries || []).length >= 3}
+      <WeightTrendChart series={adaptive.weightSeries} targetKg={Number($targetWeightKg) || null} projection={r} {today} />
     {/if}
 
     {#if r.required}
