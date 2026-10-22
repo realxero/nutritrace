@@ -28,6 +28,9 @@
   // range, etc.). Diary passes a Set built from the same completions
   // map WeekStrip already loads via getAllDiary; nothing extra fetched.
   export let completedDays = null;
+  // Fork: days that have food logged but were not closed out, drawn as a hollow ring so an
+  // unfinished day is not mistaken for an empty one. Same opt-in rule as completedDays.
+  export let loggedDays = null;
 
   const dispatch = createEventDispatcher();
 
@@ -161,12 +164,20 @@
           class:dp-sel={ds === value}
           class:dp-future={ds > _todayStr() && !blocked}
           class:dp-complete={completedDays && completedDays.has && completedDays.has(ds)}
+          class:dp-logged={loggedDays && loggedDays.has && loggedDays.has(ds) && !(completedDays && completedDays.has && completedDays.has(ds))}
+          title={completedDays && completedDays.has && completedDays.has(ds) ? 'Day complete' : loggedDays && loggedDays.has && loggedDays.has(ds) ? 'Food logged' : undefined}
           disabled={blocked}
           on:click={() => _selectDay(ds)}>
           {day}
         </button>
       {/each}
     </div>
+    {#if (completedDays && completedDays.size) || (loggedDays && loggedDays.size)}
+      <div class="dp-legend" data-testid="dp-legend">
+        {#if completedDays && completedDays.size}<span class="dp-key"><span class="dp-key-dot dp-key-done"></span>Day complete</span>{/if}
+        {#if loggedDays && loggedDays.size}<span class="dp-key"><span class="dp-key-dot dp-key-logged"></span>Food logged</span>{/if}
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -255,4 +266,19 @@
   .dp-day.dp-sel.dp-complete::after {
     background: #fff;
   }
+  /* Fork: a hollow ring marks a day with food logged that is not closed out. */
+  .dp-day.dp-logged::after {
+    content: '';
+    position: absolute;
+    top: 3px; right: 3px;
+    width: 6px; height: 6px; box-sizing: border-box;
+    border-radius: 50%;
+    border: 1.5px solid var(--text-2, #9ca3af);
+  }
+  .dp-day.dp-sel.dp-logged::after { border-color: #fff; }
+  .dp-legend { display: flex; justify-content: center; gap: 18px; padding: 8px 0 2px; font-size: 12px; color: var(--text-3); }
+  .dp-key { display: inline-flex; align-items: center; gap: 6px; }
+  .dp-key-dot { width: 7px; height: 7px; box-sizing: border-box; border-radius: 50%; display: inline-block; }
+  .dp-key-done { background: var(--success, #10b981); }
+  .dp-key-logged { border: 1.5px solid var(--text-2, #9ca3af); }
 </style>

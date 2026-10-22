@@ -20,6 +20,7 @@
   import RestaurantSheet from '../components/diary/RestaurantSheet.svelte';     // fork: eating out, menu options via Trace
   import DayPlanSheet from '../components/diary/DayPlanSheet.svelte';           // fork: plan my whole day
   import { allergenHits, termHits, ALLERGENS } from '../lib/food-safety.js';        // fork: allergen tag on logged foods
+  import { calendarMarks } from '../lib/calendar-marks.js';                          // fork: logged-but-open days on the calendar
   import ShoppingListSheet from '../components/diary/ShoppingListSheet.svelte'; // fork: shopping list
   import CelebrationBanner from '../components/diary/CelebrationBanner.svelte'; // fork: milestone celebrations
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
@@ -1299,22 +1300,21 @@
   // picker is shown. Filled by calling getAllDiary and folding rows
   // with completed_at into a Set of ISO date strings.
   let pickerCompletedDays = new Set();
+  let pickerLoggedDays = new Set();   // fork: food logged but the day is not closed out (a hollow ring)
   async function _refreshPickerCompletedDays() {
     try {
       const all = await NtApi.getAllDiary().catch(() => []);
-      const s = new Set();
-      for (const e of all || []) {
-        if (e?.date && e.completed_at) s.add(e.date);
-      }
-      pickerCompletedDays = s;
-    } catch { pickerCompletedDays = new Set(); }
+      const m = calendarMarks(all);
+      if ($diaryShowCompletion) { pickerCompletedDays = m.completed; pickerLoggedDays = m.logged; }
+      // With day-completion off there is no "closed out" mark, so every day with food gets the ring.
+      else { pickerCompletedDays = new Set(); pickerLoggedDays = new Set([...m.logged, ...m.completed]); }
+    } catch { pickerCompletedDays = new Set(); pickerLoggedDays = new Set(); }
   }
   function openDatePicker() {
     pickerDate = $currentDate;
-    // #207: skip the load when completion is off so we don't pay the
-    // getAllDiary round-trip for a feature the user never activated.
-    if ($diaryShowCompletion) _refreshPickerCompletedDays();
-    else pickerCompletedDays = new Set();
+    // Fork: always read the days, so logged-but-open days are marked even when the
+    // "day complete" feature is off (the completed dots still follow that setting).
+    _refreshPickerCompletedDays();
     _lockAndOpen(() => showDatePicker = true);
   }
   function goToDate() {
@@ -3377,7 +3377,7 @@
     on:click={() => { if (!_sheetLock) showDatePicker = false; }} use:closeOnBack={() => showDatePicker = false} on:keydown={() => {}}>
     <div class="bs-sheet dp-sheet" on:click|stopPropagation on:keydown={() => {}}>
       <div class="sheet-handle"></div>
-      <DatePicker bind:value={pickerDate} completedDays={pickerCompletedDays} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
+      <DatePicker bind:value={pickerDate} completedDays={pickerCompletedDays} loggedDays={pickerLoggedDays} on:select={(e) => { pickerDate = e.detail; goToDate(); }} />
     </div>
   </div>
 {/if}
