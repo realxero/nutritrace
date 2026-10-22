@@ -20,6 +20,8 @@ for (const route of ['/#/', '/#/foods', '/#/settings']) {
     await page.goto(route);
     await page.waitForLoadState('networkidle');
     await page.addScriptTag({ path: GREMLINS });
+    let interrupted = '';
+    try {
     await page.evaluate(async (seed) => {
       const g = window.gremlins;
       // Don't let gremlins click links that would log out or wipe data.
@@ -45,6 +47,16 @@ for (const route of ['/#/', '/#/foods', '/#/settings']) {
         if (!/dispatchEvent|elementFromPoint/.test(String(e && e.message))) throw e;
       }
     }, SEED);
+    } catch (e) {
+      // A random tap can legitimately leave the page: this test opens each screen directly, so
+      // the app's own "go back" (history.back()) or a reload ends the document the horde runs in,
+      // and Playwright reports "Execution context was destroyed". That is not an app error. The
+      // pageerror check below and the "still usable afterwards" check still apply; a crashed or
+      // closed page ("Target closed") is NOT excused.
+      if (!/Execution context was destroyed/.test(String(e && e.message))) throw e;
+      interrupted = String(e.message).split('\n')[0];
+      test.info().annotations.push({ type: 'note', description: `monkey cut short by a page navigation: ${interrupted}` });
+    }
     expect(errors.filter(e => e.startsWith('pageerror')), 'uncaught errors during monkey run').toEqual([]);
     // still alive: navigation works
     await page.goto('/#/');
