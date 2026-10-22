@@ -8,7 +8,7 @@
   import { onMount } from 'svelte';
   import { NtApi } from '../../lib/api.js';
   import { DB, localDateStr } from '../../lib/db.js';
-  import { loadProgressData } from '../../lib/progress-data.js';
+  import { getProgressData } from '../../lib/progress-data.js';
   import { buildProgress, newEvents } from '../../lib/progress.js';
   import { weightPhrase } from '../../lib/weight-compare.js';
   import { projectFromAdaptive } from '../../lib/goal-projection.js';
@@ -23,7 +23,7 @@
 
   onMount(async () => {
     if (!$showProgress) { loaded = true; return; }
-    [data, adaptive] = await Promise.all([loadProgressData(), NtApi.get('/api/goals/adaptive-tdee').catch(() => null)]);
+    [data, adaptive] = await Promise.all([getProgressData(), NtApi.get('/api/goals/adaptive-tdee').catch(() => null)]);
     loaded = true;
   });
 

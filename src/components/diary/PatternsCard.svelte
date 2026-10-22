@@ -6,14 +6,14 @@
 -->
 <script>
   import { onMount } from 'svelte';
-  import { loadProgressData } from '../../lib/progress-data.js';
+  import { getProgressData } from '../../lib/progress-data.js';
   import { findPatterns } from '../../lib/patterns.js';
   import { goals, showPatterns, smartSuggestions } from '../../stores/settings.js';
 
   let result = null;
   onMount(async () => {
     if (!$showPatterns || !$smartSuggestions) return;
-    const { days } = await loadProgressData();
+    const { days } = await getProgressData();
     result = findPatterns({ days, calorieGoal: $goals?.calories?.max ?? null, limit: 4 });
   });
   const icon = (k) => (k === 'eat-less' || k === 'breakfast-less' ? 'trending_down' : k === 'over' ? 'priority_high' : 'trending_up');

@@ -21,6 +21,7 @@
   import DayPlanSheet from '../components/diary/DayPlanSheet.svelte';           // fork: plan my whole day
   import { allergenHits, termHits, ALLERGENS } from '../lib/food-safety.js';        // fork: allergen tag on logged foods
   import ShoppingListSheet from '../components/diary/ShoppingListSheet.svelte'; // fork: shopping list
+  import CelebrationBanner from '../components/diary/CelebrationBanner.svelte'; // fork: milestone celebrations
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
   import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
   import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
@@ -2282,6 +2283,7 @@
       <FastingWidget />
     {/if}
     <!-- Fork: proactive suggestions (drink swaps, protein ideas); Settings → Diary → Smart Suggestions -->
+    <CelebrationBanner />
     <SuggestionsCard date={$currentDate} items={entry.items || []} completed={_dayIsComplete}
       calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} on:plan={() => showDayPlan = true} />
     <!-- Meal groups. Rendered via a Svelte 5 snippet `mealCard` so we

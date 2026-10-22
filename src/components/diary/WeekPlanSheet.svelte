@@ -16,7 +16,7 @@
   import { addSuggestedFood, undoAdd } from '../../lib/suggestion-actions.js';
   import { dayTotals } from '../../lib/suggestions.js';
   import { hasPrefs, SAFETY_NOTE } from '../../lib/food-safety.js';
-  import { mealNames, mutedSuggestionFoods, foodPrefs, shoppingList, goals } from '../../stores/settings.js';
+  import { mealNames, mutedSuggestionFoods, foodPrefs, shoppingList, goals, weekPlanDays } from '../../stores/settings.js';
   import { resolveGoalFor } from '../../lib/goal-resolver.js';
   import { showError, showSuccess, showUndo } from '../../stores/toast.js';
 
@@ -27,7 +27,9 @@
   export let calorieGoal = null;     // fallback when a day has no goal of its own
   export let proteinGoal = null;
 
-  let days = [];                     // [{ date, label, items, plan }]
+  let days = [];                     // [{ date, label, items, plan }] for the picked days only
+  let candidates = [];               // the next 7 days: [{ date, label, wd, entry }]
+  let picked = new Set();            // dates chosen
   let seed = 0;
   let loading = false;
   let busy = false;
@@ -37,31 +39,52 @@
 
   $: names = $mealNames || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
   $: if (open && builtFor !== `${seed}`) { builtFor = `${seed}`; build(); }
-  $: if (!open) { builtFor = ''; seed = 0; days = []; expanded = new Set(); }
+  $: if (!open) { builtFor = ''; seed = 0; days = []; candidates = []; expanded = new Set(); }
 
   const dayLabel = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); };
   // A percent goal (e.g. protein as % of calories) is not grams, so it falls back to the figure the Diary worked out.
   const goalFor = (date, key, fallback) => { const g = $goals?.[key]; if (!g || g.isPercent) return fallback; const v = resolveGoalFor(g, date); return v != null && v > 0 ? v : fallback; };
 
+  const chipLabel = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); };
+
+  // Read the next 7 days once; picking days afterwards only re-plans, it does not re-fetch.
   async function build() {
     loading = true;
     try {
       const dates = [];
       for (let o = 1; o <= 7; o++) { const d = new Date(); d.setDate(d.getDate() + o); dates.push(localDateStr(d)); }   // tomorrow … a week ahead
-      const entries = await Promise.all(dates.map(d => NtApi.getDiaryDate(d).catch(() => null)));
-      const input = dates.map((date, i) => {
-        const items = (entries[i] && entries[i].items) || [];
-        const cal = goalFor(date, 'calories', calorieGoal);
-        const prot = goalFor(date, 'proteins', proteinGoal);
-        const t = dayTotals(items);
-        return { date, items, meals: names.map((name, idx) => ({ idx, name, hasItems: items.some(it => (Number(it.meal) || 0) === idx) })),
-          remaining: { calories: cal != null ? cal - t.calories : NaN, protein: prot != null ? prot - t.proteins : NaN } };
-      });
-      const planned = planWeek({ days: input, limits, prefs: $foodPrefs, saved, dishes, muted: $mutedSuggestionFoods || [], seed });
-      days = input.map((d, i) => ({ ...d, label: dayLabel(d.date), plan: planned[i].plan }));
+      if (!candidates.length || builtFor === '0') {
+        const entries = await Promise.all(dates.map(d => NtApi.getDiaryDate(d).catch(() => null)));
+        candidates = dates.map((date, i) => ({ date, wd: new Date(date + 'T12:00:00').getDay(), entry: entries[i] }));
+        const want = new Set($weekPlanDays || [0, 1, 2, 3, 4, 5, 6]);        // the weekdays chosen last time
+        picked = new Set(candidates.filter(c => want.has(c.wd)).map(c => c.date));
+      }
+      replan();
     } catch (e) { showError(e?.message || 'Could not plan the week'); days = []; }
     loading = false;
   }
+
+  function replan() {
+    const input = candidates.filter(c => picked.has(c.date)).map(c => {
+      const items = (c.entry && c.entry.items) || [];
+      const cal = goalFor(c.date, 'calories', calorieGoal);
+      const prot = goalFor(c.date, 'proteins', proteinGoal);
+      const t = dayTotals(items);
+      return { date: c.date, items, meals: names.map((name, idx) => ({ idx, name, hasItems: items.some(it => (Number(it.meal) || 0) === idx) })),
+        remaining: { calories: cal != null ? cal - t.calories : NaN, protein: prot != null ? prot - t.proteins : NaN } };
+    });
+    const planned = planWeek({ days: input, limits, prefs: $foodPrefs, saved, dishes, muted: $mutedSuggestionFoods || [], seed });
+    days = input.map((d, i) => ({ ...d, label: dayLabel(d.date), plan: planned[i].plan }));
+  }
+
+  // Choosing days. The weekdays picked are remembered for next time.
+  function setPicked(next) {
+    picked = next;
+    weekPlanDays.set([...new Set(candidates.filter(c => next.has(c.date)).map(c => c.wd))]);
+    replan();
+  }
+  const togglePick = (date) => { const n = new Set(picked); n.has(date) ? n.delete(date) : n.add(date); setPicked(n); };
+  const preset = (kind) => setPicked(new Set(candidates.filter(c => kind === 'all' || (kind === 'weekdays' ? c.wd >= 1 && c.wd <= 5 : kind === 'weekends' ? c.wd === 0 || c.wd === 6 : false)).map(c => c.date)));
 
   // Shuffle one day (a fresh seed for it, still not repeating the day before).
   function shuffleDay(i) {
@@ -109,7 +132,19 @@
     {:else if needsGoal}
       <p class="wp-sub">Set a calorie goal on the Goals page and I can plan the week around it.</p>
     {:else}
-      <p class="wp-sub">Tomorrow through next week. Days that already have meals logged are only filled where meals are empty.</p>
+      <p class="wp-sub">Pick the days to plan. Days that already have meals logged are only filled where meals are empty.</p>
+      <div class="wp-pick" data-testid="week-days">
+        {#each candidates as c (c.date)}
+          <button type="button" class="wp-chip" class:on={picked.has(c.date)} aria-pressed={picked.has(c.date)} on:click={() => togglePick(c.date)}>{chipLabel(c.date)}</button>
+        {/each}
+      </div>
+      <div class="wp-presets">
+        <button type="button" class="wp-pre" on:click={() => preset('all')}>All</button>
+        <button type="button" class="wp-pre" on:click={() => preset('weekdays')}>Weekdays</button>
+        <button type="button" class="wp-pre" on:click={() => preset('weekends')}>Weekends</button>
+        <button type="button" class="wp-pre" on:click={() => preset('none')}>None</button>
+      </div>
+      {#if !days.length}<p class="wp-sub" data-testid="week-none">No days picked yet.</p>{/if}
       {#if hasPrefs($foodPrefs)}<p class="wp-sub">{SAFETY_NOTE}</p>{/if}
       <ul class="wp-days">
         {#each days as d, i (d.date)}
@@ -160,6 +195,11 @@
 <style>
   .wp { display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; }
   .wp-sub { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--text-3); }
+  .wp-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+  .wp-chip { min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .wp-chip.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .wp-presets { display: flex; gap: 14px; }
+  .wp-pre { min-height: 36px; padding: 0; background: none; border: 0; color: var(--accent); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
   .wp-days { list-style: none; margin: 4px 0 0; padding: 0; }
   .wp-day { border-bottom: 1px solid var(--border); }
   .wp-day:last-child { border-bottom: 0; }

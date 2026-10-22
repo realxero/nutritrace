@@ -49,6 +49,8 @@ const r0 = (n) => Math.round(n);
  * @param {number|null} p.calorieGoal
  * @param {number} p.limit   how many patterns to return
  */
+export const WEEKDAY_NAMES = WEEKDAYS;
+
 export function findPatterns({ days = [], calorieGoal = null, limit = 5 } = {}) {
   const minCal = Math.max(800, calorieGoal ? calorieGoal * 0.5 : 0);        // a half-logged day would fake a "light" day
   const complete = [];
@@ -118,7 +120,7 @@ export function findPatterns({ days = [], calorieGoal = null, limit = 5 } = {}) 
     const diff = mean(a) - mean(b), t = welchT(a, b);
     if (Math.abs(diff) >= Math.max(150, thresholdKcal) && Math.abs(t) >= T_MIN) {
       out.push(mk('weekday', t, {
-        weekday: wd, n: on.length, nOther: off.length, deltaKcal: r0(Math.abs(diff)), score: Math.abs(diff) / (calorieGoal || 2000),
+        weekday: wd, dir: diff < 0 ? 'less' : 'more', n: on.length, nOther: off.length, deltaKcal: r0(Math.abs(diff)), score: Math.abs(diff) / (calorieGoal || 2000),
         text: `You tend to eat about ${r0(Math.abs(diff)).toLocaleString()} kcal ${diff < 0 ? 'less' : 'more'} on ${WEEKDAYS[wd]} than on other days.`,
       }));
     }

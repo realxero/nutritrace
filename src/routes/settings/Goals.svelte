@@ -2,7 +2,7 @@
   import { _ } from 'svelte-i18n';
   import {
     calorieGoalMode, calorieGoalFactor,
-    fitbitFamilyEnabled, garminEnabled, showProgress, showPatterns,
+    fitbitFamilyEnabled, garminEnabled, showProgress, showPatterns, showRecap,
   } from '../../stores/settings.js';
   import Toggle from '../../components/settings/Toggle.svelte';
 
@@ -74,7 +74,7 @@
 
   <!-- Fork: Progress & patterns on the Goals page -->
   <p class="settings-group-heading">Progress &amp; Patterns</p>
-  <p class="settings-group-sub">Streaks, milestones and a timeline, and habits found in your own diary.</p>
+  <p class="settings-group-sub">Streaks, milestones and a timeline, a monthly recap, and habits found in your own diary. Patterns also power the heads-up on the Diary.</p>
   <div class="card settings-card" data-testid="settings-progress">
     <div class="setting-row">
       <div><span class="setting-label">Progress &amp; celebrations</span><div class="setting-desc">Streaks, milestones (with something familiar to picture each one) and achievements, with a note the first time you reach one.</div></div>
@@ -84,6 +84,11 @@
     <div class="setting-row">
       <div><span class="setting-label">Patterns I've noticed</span><div class="setting-desc">For example, days you eat a certain food tend to run lighter or heavier. Only shown when the pattern is clear, and needs Smart Suggestions on.</div></div>
       <Toggle checked={$showPatterns} on:change={e => showPatterns.set(e.detail)} />
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-row">
+      <div><span class="setting-label">Monthly recap</span><div class="setting-desc">A short summary of last month on the Goals page: days logged, how often you landed within your calorie goal, the weight trend and what you earned.</div></div>
+      <Toggle checked={$showRecap} on:change={e => showRecap.set(e.detail)} />
     </div>
   </div>
 </div>

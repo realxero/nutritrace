@@ -17,9 +17,13 @@
   import { COMMON_FOODS, commonFoodToFood } from '../../lib/common-foods.js';
   import { mealForSuggestion, mutedKey } from '../../lib/suggestions.js';
   import { buildDaySuggestions } from '../../lib/day-suggestions.js';
+  import { getProgressData } from '../../lib/progress-data.js';
+  import { findPatterns } from '../../lib/patterns.js';
+  import { findNudges } from '../../lib/nudges.js';
+  import { dayTotals } from '../../lib/suggestions.js';
   import { defaultMealForNow } from '../../lib/quick-add.js';
   import { swapDiaryItem, addSuggestedFood, undoAdd, undoSwap } from '../../lib/suggestion-actions.js';
-  import { smartSuggestions, suggestSwaps, suggestProtein, suggestNutrients, watchedNutrients, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods, foodPrefs } from '../../stores/settings.js';
+  import { smartSuggestions, suggestSwaps, suggestProtein, suggestNutrients, watchedNutrients, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods, foodPrefs, showPatterns } from '../../stores/settings.js';
   import { showSuccess, showError, showUndo } from '../../stores/toast.js';
   import FoodIcon from '../ui/FoodIcon.svelte';
   import ActionSheet from '../ui/ActionSheet.svelte';
@@ -37,9 +41,15 @@
   let open = true;
   const common = COMMON_FOODS.map(e => commonFoodToFood(e));
 
+  let history = null;
   onMount(async () => {
     try { saved = await NtApi.getFoods(); } catch { saved = []; }
+    // The whole diary (a shared, cached copy), for the habits behind the heads-up row.
+    if ($showPatterns && $smartSuggestions) { try { history = (await getProgressData()).days; } catch { history = null; } }
   });
+  // Rounded so a small change in today's activity-adjusted goal does not re-run the search.
+  $: stableGoal = calorieGoal > 0 ? Math.round(calorieGoal / 50) * 50 : 0;
+  $: patterns = (history && stableGoal > 0 && $showPatterns && $smartSuggestions) ? findPatterns({ days: history, calorieGoal: stableGoal, limit: 50 }).patterns : [];
 
   $: today = localDateStr();
   $: dismissedToday = ($dismissedSuggestions || {})[date] || [];
@@ -56,7 +66,10 @@
     s.protein && { ...s.protein, nutrient: 'protein', unit: 'g' },
     s.fiber && { ...s.fiber, nutrient: 'fiber', unit: 'g' },
   ].filter(Boolean);
-  $: count = s.swaps.length + s.nutrients.length + gaps.length;
+  $: kcalLeft = calorieGoal > 0 ? calorieGoal - dayTotals(items).calories : null;
+  $: nudges = ($smartSuggestions && $showPatterns)
+    ? findNudges({ patterns, items, date, today, kcalLeft, completed, dismissed: dismissedToday }) : [];
+  $: count = s.swaps.length + s.nutrients.length + gaps.length + nudges.length;
   $: names = $mealNames || ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
 
   function dismiss(id) {
@@ -131,6 +144,19 @@
     </button>
 
     {#if open}
+      {#each nudges as n (n.id)}
+        <div class="sg-item" data-testid="suggestion-nudge">
+          <span class="material-symbols-rounded sg-nudge-ico" aria-hidden="true">info</span>
+          <div class="sg-body">
+            <div class="sg-line">{n.text}</div>
+            <div class="sg-sub">{n.sub}</div>
+          </div>
+          <button type="button" class="sg-act" on:click={() => dispatch('plan')} data-testid="nudge-plan">Plan</button>
+          <button type="button" class="sg-x" aria-label="Hide this heads-up" on:click={() => dismiss(n.id)}>
+            <span class="material-symbols-rounded" aria-hidden="true">close</span>
+          </button>
+        </div>
+      {/each}
       {#if s.planning}
         <div class="sg-item">
           <div class="sg-body"><div class="sg-line">Nothing planned yet</div><div class="sg-sub">Build a whole day around your goals, with swaps for anything you don't fancy.</div></div>
@@ -209,6 +235,7 @@
   .sg-row { display: flex; align-items: center; gap: 10px; }
   .sg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .sg-line { font-size: 14px; color: var(--text-1); line-height: 1.3; }
+  .sg-nudge-ico { color: #eab308; font-size: 20px; margin-right: -2px; }
   .sg-arrow { color: var(--text-3); }
   .sg-sub { font-size: 12.5px; color: var(--text-3); line-height: 1.35; }
   .sg-act { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 0; cursor: pointer; font-weight: 700; font-size: 14px;

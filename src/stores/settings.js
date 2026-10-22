@@ -49,7 +49,7 @@ export const USER_PREFS = new Set([
   'statsMetricOrder','statsHiddenMetrics',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
-  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','recentRestaurants','dietType','foodAllergens','foodAvoid','foodDislikes','shoppingList','planStart','celebratedEvents','showProgress','showPatterns','activity','tdee',
+  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','recentRestaurants','dietType','foodAllergens','foodAvoid','foodDislikes','shoppingList','planStart','celebratedEvents','showProgress','showPatterns','weekPlanDays','showRecap','recapSeen','activity','tdee',
   // Native local-mode profile fields (no auth → no users table; these stand in for
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
@@ -583,6 +583,11 @@ export const showProgress = createSettingStore('showProgress', true);
 export const showPatterns = createSettingStore('showPatterns', true);
 // Where the current plan started ({ date, kg }); null = the first weigh-in. "Restart from today" sets it.
 export const planStart = createSettingStore('planStart', null);
+// The weekdays (0 = Sunday … 6 = Saturday) the week planner plans, remembered between uses.
+export const weekPlanDays = createSettingStore('weekPlanDays', [0, 1, 2, 3, 4, 5, 6]);
+// The monthly recap card on the Goals page, and the last month the user dismissed ('YYYY-MM').
+export const showRecap = createSettingStore('showRecap', true);
+export const recapSeen = createSettingStore('recapSeen', '');
 // Ids of milestones/achievements the user has already been shown (so each is celebrated once).
 export const celebratedEvents = createSettingStore('celebratedEvents', []);
 foodOverrides.subscribe((v) => setFoodOverrides(v));

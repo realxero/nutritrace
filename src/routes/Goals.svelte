@@ -19,6 +19,7 @@
   import GoalWeight from '../components/diary/GoalWeight.svelte';       // fork: goal weight + date projection
   import ProgressCard from '../components/diary/ProgressCard.svelte';   // fork: streaks, milestones, timeline
   import PatternsCard from '../components/diary/PatternsCard.svelte';   // fork: patterns I've noticed
+  import RecapCard from '../components/diary/RecapCard.svelte';         // fork: last month's recap
   import { foldText } from '../lib/search-text.js';
   import { fold } from '../lib/fold.js';
 
@@ -796,6 +797,7 @@
 
     {#if activeTab === 'yours'}
       <GoalWeight />
+      <RecapCard />
       <ProgressCard />
       <PatternsCard />
       <WeeklyCheckIn />
