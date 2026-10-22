@@ -28,10 +28,9 @@ test('the card turns off with the master switch and acts only on a button press'
   assert.match(c, /\$smartSuggestions\s*\n?\s*\? suggestForDay/);
   assert.match(c, /on:click=\{\(\) => swap\(sw\)\}/);
   assert.match(c, /on:click=\{\(\) => addIdea\(idea\)\}/);
-  assert.match(c, /Hide this suggestion/);
-  // a swap adds the new food first and removes the original by uuid, never by a stale index
-  assert.ok(c.indexOf('await addDiaryItem') < c.indexOf('await removeDiaryItem'));
-  assert.match(c, /i\.uuid === sw\.from\.uuid/);
+  // the swap itself lives in suggestion-actions: new food first, original removed by uuid
+  assert.match(c, /swapDiaryItem\(sw\.from, sw\.to/);
+  assert.match(c, /Hide or stop this suggestion/);
 });
 
 test('the weekly check-in adjustment follows the same switch', () => {

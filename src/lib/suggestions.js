@@ -19,6 +19,30 @@
 const r0 = (n) => Math.round(n);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
+/**
+ * How pushy suggestions are. Gentle only speaks up for big wins and waits until
+ * mid-afternoon to talk about protein; Thorough also notices smaller ones.
+ */
+export const LEVELS = {
+  gentle:   { label: 'Gentle',   minSugarG: 25, minSaveKcal: 60, minGapG: 30, ideas: 2, minHourToday: 15 },
+  balanced: { label: 'Balanced', minSugarG: 12, minSaveKcal: 30, minGapG: 15, ideas: 3, minHourToday: 0 },
+  thorough: { label: 'Thorough', minSugarG: 6,  minSaveKcal: 15, minGapG: 8,  ideas: 4, minHourToday: 0 },
+};
+export const levelOf = (name) => LEVELS[name] || LEVELS.balanced;
+
+/** Lower-case, trimmed, punctuation-light key for a food name. */
+export const mutedKey = (name) => String(name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+/** True when a food matches anything on the "never suggest" list (either contains the other). */
+export function isMuted(name, muted = []) {
+  const k = mutedKey(name);
+  if (!k) return false;
+  return (muted || []).some(m => {
+    const mk = mutedKey(m);
+    return mk.length >= 3 && (k === mk || k.includes(mk) || (k.length >= 3 && mk.includes(k)));
+  });
+}
+
 /** Per-item totals for the keys we use (quantity-scaled; split recipes summed). */
 export function itemTotals(item) {
   if (!item) return { calories: 0, proteins: 0, sugars: 0 };
@@ -55,7 +79,6 @@ const SWEET_DRINK = [
   ['sweet',   /\b(lemonade|fruit punch|juice drink|kool.?aid|hi-?c|sunny ?d|capri ?sun|gatorade|powerade|sports drink|frappuccino|sweet(ened)? drink)\b/i],
 ];
 const ALREADY_LIGHT = /\b(zero|diet|sugar[- ]?free|no sugar|0 ?sugar|unsweetened|light|lite|max|skinny)\b/i;
-const MIN_SUGAR_G = 12;   // grams in the logged amount before it is worth a nudge
 
 const GENERIC = {
   soda:   { name: 'Zero-sugar soda',          icon: '🥤', calories: 0,  note: 'sweetened without sugar' },
@@ -95,16 +118,18 @@ export function findSavedTwin(item, saved = []) {
  * Swap suggestions for the day's items.
  * @returns {Array<{id,kind:'swap',itemIndex,from,to,savesKcal,savesSugar,source}>}
  */
-export function findSwaps(items, saved = []) {
+export function findSwaps(items, saved = [], { level = 'balanced', muted = [], ignoreMuted = false } = {}) {
+  const L = levelOf(level);
   const out = [];
   (items || []).forEach((item, itemIndex) => {
     if (!item || item.type === 'quick_calories') return;
+    if (!ignoreMuted && isMuted(item.name, muted)) return;
     const kind = drinkKind(item);
     if (!kind) return;
     const t = itemTotals(item);
     const sugarKnown = item.nutrition && item.nutrition.sugars != null;
     // A real sugar figure must clear the bar; with none on record, calories stand in.
-    if (sugarKnown ? t.sugars < MIN_SUGAR_G : t.calories < 80) return;
+    if (sugarKnown ? t.sugars < L.minSugarG : t.calories < L.minSugarG * 6.5) return;
 
     const twin = findSavedTwin(item, saved);
     let to;
@@ -122,7 +147,7 @@ export function findSwaps(items, saved = []) {
     const tt = itemTotals(to);
     const savesKcal = r0(t.calories - tt.calories);
     const savesSugar = r0(t.sugars - tt.sugars);
-    if (savesKcal < 30 && savesSugar < MIN_SUGAR_G) return;
+    if (savesKcal < L.minSaveKcal && savesSugar < L.minSugarG) return;
     out.push({
       id: `swap:${item.uuid || itemIndex}:${(item.name || '').toLowerCase()}`,
       kind: 'swap', itemIndex, from: item, to, savesKcal, savesSugar, source: twin ? 'saved' : 'generic',
@@ -133,7 +158,6 @@ export function findSwaps(items, saved = []) {
 
 /* ── Protein gap ────────────────────────────────────────────────────── */
 
-const MIN_GAP_G = 15;          // protein still to go before we say anything
 const MIN_PROTEIN_PER_SERVING = 8;
 const MIN_PROTEIN_PER_KCAL = 0.075;   // ≥ 7.5 g per 100 kcal: a lean source, not "a bit of protein"
 const NOT_A_FIT = /\b(chips?|cookie|candy|cake|donut|doughnut|ice cream|soda|juice|bar)\b/i;
@@ -157,11 +181,13 @@ function candidateFrom(food, { saved }) {
  * @param {Array}  p.common       built-in foods already converted to app foods
  * @param {number} p.limit
  */
-export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal = null, saved = [], common = [], limit = 3 } = {}) {
+export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal = null, saved = [], common = [], limit, level = 'balanced', muted = [] } = {}) {
+  const L = levelOf(level);
+  limit = limit ?? L.ideas;
   if (!(proteinGoal > 0)) return { gap: 0, ideas: [], tight: false };
   const t = dayTotals(items);
   const gap = r0(proteinGoal - t.proteins);
-  if (gap < MIN_GAP_G) return { gap: Math.max(gap, 0), ideas: [], tight: false };
+  if (gap < L.minGapG) return { gap: Math.max(gap, 0), ideas: [], tight: false };
 
   const calLeft = calorieGoal > 0 ? calorieGoal - t.calories : null;
   const tight = calLeft != null && calLeft < 150;
@@ -173,7 +199,7 @@ export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal =
   for (const f of common || []) { const c = candidateFrom(f, { saved: false }); if (c) pool.push(c); }
 
   const scored = pool
-    .filter(c => c.kcal <= kcalCap && !eaten.has(c.food.name.toLowerCase()))
+    .filter(c => c.kcal <= kcalCap && !eaten.has(c.food.name.toLowerCase()) && !isMuted(c.food.name, muted))
     .map(c => {
       const density = c.protein / c.kcal;
       const useful = Math.min(c.protein, gap);
@@ -209,18 +235,21 @@ export function findProteinIdeas({ items = [], proteinGoal = null, calorieGoal =
 export function suggestForDay({
   date, today, items = [], completed = false, proteinGoal = null, calorieGoal = null,
   saved = [], common = [], enabled = { swaps: true, protein: true }, dismissed = [],
+  level = 'balanced', muted = [], hour = new Date().getHours(),
 } = {}) {
   const state = dayState(date, today);
   const hidden = new Set(dismissed || []);
   const out = { state, swaps: [], protein: null, planning: false };
   if (state === 'past' || completed) return out;
 
-  if (enabled.swaps && items.length) out.swaps = findSwaps(items, saved).filter(s => !hidden.has(s.id));
+  if (enabled.swaps && items.length) out.swaps = findSwaps(items, saved, { level, muted }).filter(s => !hidden.has(s.id));
 
   if (enabled.protein) {
     // An empty day is only worth a nudge when it is a day still being planned.
-    if (items.length || state === 'future') {
-      const ideas = findProteinIdeas({ items, proteinGoal, calorieGoal, saved, common });
+    // Gentle waits until the afternoon to talk about today's protein; planning a future day is always fair.
+    const tooEarly = state === 'today' && hour < levelOf(level).minHourToday;
+    if ((items.length || state === 'future') && !tooEarly) {
+      const ideas = findProteinIdeas({ items, proteinGoal, calorieGoal, saved, common, level, muted });
       const id = `protein:${date}`;
       if (ideas.ideas.length && !hidden.has(id)) out.protein = { id, ...ideas };
       out.planning = state === 'future' && !items.length;

@@ -11,16 +11,16 @@
 -->
 <script>
   import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
   import { NtApi } from '../../lib/api.js';
   import { localDateStr } from '../../lib/db.js';
   import { COMMON_FOODS, commonFoodToFood } from '../../lib/common-foods.js';
-  import { suggestForDay, mealForSuggestion } from '../../lib/suggestions.js';
+  import { suggestForDay, mealForSuggestion, mutedKey } from '../../lib/suggestions.js';
   import { defaultMealForNow } from '../../lib/quick-add.js';
-  import { addDiaryItem, removeDiaryItem, currentEntry } from '../../stores/diary.js';
-  import { smartSuggestions, suggestSwaps, suggestProtein, dismissedSuggestions, mealNames } from '../../stores/settings.js';
+  import { swapDiaryItem, addSuggestedFood } from '../../lib/suggestion-actions.js';
+  import { smartSuggestions, suggestSwaps, suggestProtein, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods } from '../../stores/settings.js';
   import { showSuccess, showError } from '../../stores/toast.js';
   import FoodIcon from '../ui/FoodIcon.svelte';
+  import ActionSheet from '../ui/ActionSheet.svelte';
 
   export let date = '';
   export let items = [];
@@ -43,6 +43,7 @@
     ? suggestForDay({
         date, today, items, completed, proteinGoal, calorieGoal, saved, common,
         enabled: { swaps: $suggestSwaps, protein: $suggestProtein }, dismissed: dismissedToday,
+        level: $suggestionLevel, muted: $mutedSuggestionFoods || [],
       })
     : { state: 'past', swaps: [], protein: null, planning: false };
   $: count = s.swaps.length + (s.protein ? 1 : 0);
@@ -60,20 +61,8 @@
     if (busy) return;
     busy = sw.id;
     try {
-      const meal = Number(sw.from.meal) || 0;
-      const { id: _i, uuid: _u, _source, icon: _ic, quantity: _q, ...rest } = sw.to;
-      let food = sw.to;
-      if (!food.id || typeof food.id !== 'number') {
-        // A built-in swap is saved once so it can be edited and reused like any food.
-        const existing = saved.find(f => f.name === sw.to.name && !f.deleted_at);
-        food = existing ? { ...existing, quantity: sw.to.quantity } : { ...(await NtApi.createFood(rest)), quantity: sw.to.quantity };
-        if (!existing) saved = [...saved, food];
-      }
-      await addDiaryItem({ ...food, portion: food.portion || 1, unit: food.unit || 'serving', quantity: sw.to.quantity, nutrition: food.nutrition }, meal, date);
-      // Remove the original by its id, never by position: the list just changed.
-      const latest = get(currentEntry);
-      const idx = (latest?.items || []).findIndex(i => sw.from.uuid ? i.uuid === sw.from.uuid : i.name === sw.from.name);
-      if (idx >= 0) await removeDiaryItem(idx);
+      const food = await swapDiaryItem(sw.from, sw.to, { date, saved, quantity: sw.to.quantity });
+      if (food && !saved.some(f => f.id === food.id)) saved = [...saved, food];
       showSuccess(`Swapped to ${sw.to.name}`);
     } catch (e) { showError(e?.message || 'Could not swap that'); }
     busy = '';
@@ -84,20 +73,41 @@
     busy = idea.food.name;
     try {
       const meal = mealForSuggestion({ state: s.state, items, mealCount: names.length, timeMeal: defaultMealForNow(names.length) });
-      let food = idea.food;
-      if (!food.id || typeof food.id !== 'number') {
-        const existing = saved.find(f => f.name === food.name && f.brand === 'USDA' && !f.deleted_at);
-        if (existing) food = { ...existing, portion: food.portion, unit: food.unit, nutrition: existing.nutrition };
-        else {
-          const { id: _d, _source, _commonId, icon: _ic, ...rest } = food;
-          food = await NtApi.createFood({ ...rest, created_at: new Date().toISOString() });
-          saved = [...saved, food];
-        }
-      }
-      await addDiaryItem({ ...food, portion: food.portion || 100, unit: food.unit || 'g', quantity: 1, nutrition: food.nutrition }, meal, date);
+      const food = await addSuggestedFood(idea.food, { meal, date, saved });
+      if (food && !saved.some(f => f.id === food.id)) saved = [...saved, food];
       showSuccess(`Added ${idea.food.name} to ${names[meal] || 'meal'}`);
     } catch (e) { showError(e?.message || 'Could not add that'); }
     busy = '';
+  }
+
+  // The X opens a small menu: hide for today, or never suggest for a food.
+  let menuOpen = false;
+  let menu = null;      // { id, label, actions:[{label,icon,value}] }
+  function openMenu(kind, payload) {
+    if (kind === 'swap') {
+      menu = { id: payload.id, title: payload.from.name, actions: [
+        { label: 'Hide for today', icon: 'visibility_off', value: 'hide' },
+        { label: `Never suggest changes for ${payload.from.name}`, icon: 'block', value: `mute:${payload.from.name}` },
+      ] };
+    } else {
+      menu = { id: payload.id, title: 'Protein ideas', actions: [
+        { label: 'Hide for today', icon: 'visibility_off', value: 'hide' },
+        ...payload.ideas.map(i => ({ label: `Never suggest ${i.food.name}`, icon: 'block', value: `mute:${i.food.name}` })),
+      ] };
+    }
+    menuOpen = true;
+  }
+  function onMenu(e) {
+    const v = String(e.detail?.value || '');
+    if (!menu) return;
+    if (v === 'hide') dismiss(menu.id);
+    else if (v.startsWith('mute:')) {
+      const name = v.slice(5);
+      const have = $mutedSuggestionFoods || [];
+      if (!have.some(m => mutedKey(m) === mutedKey(name))) mutedSuggestionFoods.set([...have, name]);
+      showSuccess(`Won't suggest ${name}. Change this in Settings → Diary.`);
+    }
+    menu = null;
   }
 </script>
 
@@ -118,7 +128,7 @@
             <div class="sg-sub">Saves {sw.savesKcal} kcal{sw.savesSugar > 0 ? ` and ${sw.savesSugar} g sugar` : ''}{sw.source === 'saved' ? ' · from your foods' : ''}</div>
           </div>
           <button type="button" class="sg-act" disabled={!!busy} on:click={() => swap(sw)} data-testid="swap-btn">Swap</button>
-          <button type="button" class="sg-x" aria-label="Hide this suggestion" on:click={() => dismiss(sw.id)}>
+          <button type="button" class="sg-x" aria-label="Hide or stop this suggestion" on:click={() => openMenu('swap', sw)}>
             <span class="material-symbols-rounded" aria-hidden="true">close</span>
           </button>
         </div>
@@ -131,7 +141,7 @@
               <div class="sg-line"><strong>{s.protein.gap} g protein</strong> {s.planning ? 'to plan for' : 'to go'}</div>
               <div class="sg-sub">{s.protein.tight ? 'Calories are tight, so these are lean picks.' : 'These fit the calories you have left.'}</div>
             </div>
-            <button type="button" class="sg-x" aria-label="Hide this suggestion" on:click={() => dismiss(s.protein.id)}>
+            <button type="button" class="sg-x" aria-label="Hide or stop this suggestion" on:click={() => openMenu('protein', s.protein)}>
               <span class="material-symbols-rounded" aria-hidden="true">close</span>
             </button>
           </div>
@@ -154,6 +164,8 @@
     {/if}
   </section>
 {/if}
+
+<ActionSheet bind:open={menuOpen} title={menu?.title || ''} actions={menu?.actions || []} on:select={onMenu} />
 
 <style>
   .sg { margin: 0 0 12px; padding: 0; overflow: hidden; }

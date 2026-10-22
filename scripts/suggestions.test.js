@@ -154,3 +154,80 @@ test('meal choice: time of day for today, emptiest lunch/dinner for other days',
   assert.equal(mealForSuggestion({ state: 'future', items }), 2);
   assert.equal(mealForSuggestion({ state: 'future', items: [] }), 1);
 });
+
+import { LEVELS, levelOf, isMuted, mutedKey } from '../src/lib/suggestions.js';
+import { goalFocus, familiesOf, findBetterOptions } from '../src/lib/better-options.js';
+
+test('levels: gentle is quieter, thorough notices more', () => {
+  const small = { name: 'Gatorade', quantity: 1, nutrition: { calories: 80, sugars: 21 } };      // 21 g sugar
+  assert.equal(findSwaps([small], [], { level: 'gentle' }).length, 0);
+  assert.equal(findSwaps([small], [], { level: 'balanced' }).length, 1);
+  const tiny = { name: 'Sprite', quantity: 1, nutrition: { calories: 40, sugars: 8 } };
+  assert.equal(findSwaps([tiny], [], { level: 'balanced' }).length, 0);
+  assert.equal(findSwaps([tiny], [], { level: 'thorough' }).length, 1);
+  assert.equal(levelOf('nonsense'), LEVELS.balanced);
+});
+
+test('levels: protein gap size, idea count and gentle waiting until afternoon', () => {
+  const items = [food('Toast', 3, 80)];
+  const args = { ...base, items, common };
+  // 117 g gap: all levels speak up on a future day, gentle holds back this morning
+  assert.equal(suggestForDay({ ...args, level: 'gentle', hour: 9 }).protein, null);
+  assert.equal(suggestForDay({ ...args, level: 'gentle', hour: 16 }).protein.ideas.length, 2);
+  assert.equal(suggestForDay({ ...args, level: 'balanced', hour: 9 }).protein.ideas.length, 3);
+  assert.equal(suggestForDay({ ...args, level: 'thorough', hour: 9 }).protein.ideas.length, 4);
+  assert.ok(suggestForDay({ ...args, date: '2026-10-25', level: 'gentle', hour: 9 }).protein);   // planning ahead
+  // a 20 g gap is under gentle's bar but over balanced's
+  const near = [food('Dinner', 100, 900)];
+  assert.equal(suggestForDay({ ...args, items: near, level: 'gentle', hour: 18 }).protein, null);
+  assert.ok(suggestForDay({ ...args, items: near, level: 'balanced', hour: 18 }).protein);
+});
+
+test('never-suggest list: matches either way round and skips swaps and ideas', () => {
+  assert.equal(mutedKey('  Coca-Cola!! '), 'coca cola');
+  assert.equal(isMuted('Coca-Cola Classic', ['coca cola']), true);
+  assert.equal(isMuted('Coke', ['Coca-Cola']), false);
+  assert.equal(isMuted('Almonds', ['ab']), false);               // too short to match anything
+  assert.equal(findSwaps([cola], [], { muted: ['Coca-Cola'] }).length, 0);
+  const r = findProteinIdeas({ items: [food('Toast', 3, 80)], proteinGoal: 120, calorieGoal: 2000, common, muted: ['chicken breast'] });
+  assert.ok(!r.ideas.some(i => /chicken/i.test(i.food.name)));
+});
+
+test('goal focus', () => {
+  assert.equal(goalFocus({ targetKg: 80, currentKg: 90 }), 'lose');
+  assert.equal(goalFocus({ targetKg: 75, currentKg: 70 }), 'gain');
+  assert.equal(goalFocus({ targetKg: 80, currentKg: 80.2, proteinGap: 40 }), 'protein');
+  assert.equal(goalFocus({}), 'balanced');
+});
+
+test('better option: a sugary drink always gets its zero-sugar twin when asked', () => {
+  const r = findBetterOptions({ name: 'Sprite', quantity: 1, nutrition: { calories: 40, sugars: 8 } }, { focus: 'lose' });
+  assert.equal(r.kind, 'swap');
+  assert.equal(r.options[0].food.name, 'Zero-sugar soda');
+});
+
+test('better option: finds lighter foods in the same category for losing weight', () => {
+  assert.deepEqual(familiesOf('Cheddar cheese'), ['cheeses']);
+  const r = findBetterOptions({ name: 'Cheddar cheese', quantity: 1, nutrition: { calories: 113, proteins: 7, sugars: 0.1 } }, { focus: 'lose', limit: 5 });
+  assert.equal(r.kind, 'family');
+  assert.ok(r.options.length > 0);
+  for (const o of r.options) assert.ok(o.delta.kcal < 0, `${o.food.name} should cut calories`);
+  // only cheeses, never milk or yogurt
+  const cheeses = ['Cheddar cheese', 'American cheese slice', 'Cream cheese', 'Mozzarella, part-skim', 'Cottage cheese, 2%', 'Parmesan, grated'];
+  for (const o of r.options) assert.ok(cheeses.includes(o.food.name), `${o.food.name} is not a cheese`);
+});
+
+test('better option: never offers a muted food or the same food, and says nothing for unknown foods', () => {
+  const r = findBetterOptions({ name: 'Cheddar cheese', quantity: 1, nutrition: { calories: 113, proteins: 7 } }, { focus: 'lose', muted: ['cottage'], limit: 10 });
+  assert.ok(!r.options.some(o => /cottage/i.test(o.food.name)));
+  assert.ok(!r.options.some(o => /^cheddar cheese$/i.test(o.food.name)));
+  const none = findBetterOptions({ name: 'Grandma Zorp special', quantity: 1, nutrition: { calories: 300 } }, { focus: 'lose' });
+  assert.equal(none.kind, 'none');
+  assert.equal(findBetterOptions({ type: 'quick_calories', name: 'x' }).kind, 'none');
+});
+
+test('better option: scales to the logged quantity', () => {
+  const one = findBetterOptions({ name: 'Cheddar cheese', quantity: 1, nutrition: { calories: 113, proteins: 7 } }, { focus: 'lose', limit: 10 });
+  const two = findBetterOptions({ name: 'Cheddar cheese', quantity: 2, nutrition: { calories: 113, proteins: 7 } }, { focus: 'lose', limit: 10 });
+  if (one.options.length && two.options.length) assert.equal(two.options[0].food.quantity, 2);
+});

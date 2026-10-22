@@ -16,6 +16,7 @@
   import MacroRing    from '../components/diary/MacroRing.svelte';
   import DaySummaryWidget from '../components/diary/DaySummaryWidget.svelte';
   import SuggestionsCard from '../components/diary/SuggestionsCard.svelte'; // fork: swaps + protein ideas
+  import BetterOptionSheet from '../components/diary/BetterOptionSheet.svelte'; // fork: on-demand better option
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
   import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
   import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
@@ -1473,6 +1474,7 @@
     if (!actionItem) return;
     if (val === 'edit')        { openEditItem(actionItem); }
     if (val === 'replace')     { replaceItem(actionItem); }
+    if (val === 'better')      { openBetter(actionItem); }
     if (val === 'move')        { _lockAndOpen(() => showMoveToMeal = true); }
     if (val === 'copy_to') {
       // Open the shared Copy sheet in 'item' mode. Same single-sheet UX
@@ -1647,6 +1649,16 @@
   $: _actionItemIsRecipe = !!(actionItem?.is_recipe
     || (Array.isArray(actionItem?.items) && actionItem.items.length > 0));
 
+  // Fork: "Better option for my goal" for one logged food. Always available,
+  // whether or not Smart Suggestions are switched on.
+  let showBetter = false;
+  let betterItem = null;
+  function openBetter(item) {
+    if (!item || item.type === 'quick_calories') return;
+    betterItem = item;
+    showEditSheet = false;
+    _lockAndOpen(() => showBetter = true);
+  }
   function replaceItem(item) {
     // Store the item to replace, then navigate to food picker in pick mode
     const mealSlot = item.meal != null ? Number(item.meal) : 0;
@@ -3067,6 +3079,9 @@
               on:click={() => { editEmoji = ''; editEmojiTouched = true; showEmojiGrid = false; }}>Automatic</button>
           </div>
         {/if}
+        <button type="button" class="btn btn-ghost w-full" style="margin-bottom:12px" on:click={() => openBetter(editItem)} data-testid="edit-better-btn">
+          <span class="material-symbols-rounded" style="font-size:18px" aria-hidden="true">tips_and_updates</span> Better option for my goal
+        </button>
       {/if}
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
@@ -3177,6 +3192,7 @@
   actions={[
     { label: 'Edit',            icon: 'edit',          value: 'edit'        },
     { label: 'Replace',         icon: 'find_replace',  value: 'replace'     },
+    ...(actionItem && actionItem.type !== 'quick_calories' ? [{ label: 'Better option for my goal', icon: 'tips_and_updates', value: 'better' }] : []),
     { label: 'Move to Meal',    icon: 'swap_horiz',    value: 'move'        },
     { label: 'Copy',            icon: 'content_copy',  value: 'copy_to'     },
     { label: 'Select Multiple', icon: 'checklist',     value: 'select'      },
@@ -3551,6 +3567,9 @@
 <AddActivitySheet bind:open={showActivitySheet} date={$currentDate} entry={editingActivity} on:close={() => editingActivity = null} />
 
 <QuickCaloriesSheet bind:open={_quickSheetOpen} meal={_quickSheetMeal} mealName={meals[_quickSheetMeal] || ''} />
+
+<BetterOptionSheet bind:open={showBetter} item={betterItem} items={entry.items || []} date={$currentDate}
+  calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} />
 
 <ActionSheet
   bind:open={showActivityAction}

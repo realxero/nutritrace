@@ -12,7 +12,7 @@
     diaryShowActivity, manualActivityPolicy, calorieAdjustFromActivity,
     showQuickCalories, quickCaloriesDisplay,
     diaryShowNutritionBar,
-    smartSuggestions, suggestSwaps, suggestProtein,
+    smartSuggestions, suggestSwaps, suggestProtein, suggestionLevel, mutedSuggestionFoods,
     diaryRailShowSummary, diaryRailShowWater, diaryRailShowBodyStats,
     diaryRailShowActivity as diaryRailShowActivityWidget,
     diaryRailShowNotes,
@@ -21,6 +21,23 @@
     fastingScheduleEnabled, fastingScheduleTime, fastingScheduleDays, fastingScheduleGoal,
   } from '../../stores/settings.js';
   import { isNative, getServerUrl } from '../../lib/platform.js';
+  import { LEVELS, mutedKey } from '../../lib/suggestions.js';
+
+  // Fork: Smart Suggestions — never-suggest list
+  let _muteInput = '';
+  function addMuted() {
+    const name = _muteInput.trim();
+    if (!name) return;
+    const have = ($mutedSuggestionFoods || []);
+    if (!have.some(m => mutedKey(m) === mutedKey(name))) mutedSuggestionFoods.set([...have, name]);
+    _muteInput = '';
+  }
+  const removeMuted = (name) => mutedSuggestionFoods.set(($mutedSuggestionFoods || []).filter(m => m !== name));
+  const LEVEL_DESC = {
+    gentle: 'Only big wins: heavily sweetened drinks, or a large protein gap after mid-afternoon.',
+    balanced: 'A sensible middle: clear sugar savings and protein gaps of about 15 g or more.',
+    thorough: 'Notices smaller things too: lighter sugar, smaller protein gaps, more ideas.',
+  };
 
   // Same rule the parent shell derives.
   $: isNativeLocal = isNative && !getServerUrl();
@@ -115,6 +132,31 @@
     <SettingRow label="Protein ideas" desc="When protein is behind your goal, suggest foods that fit the calories you have left.">
       <Toggle checked={$suggestProtein} disabled={!$smartSuggestions} on:change={e => suggestProtein.set(e.detail)} />
     </SettingRow>
+    <div class="sg-level" data-testid="suggestion-level">
+      <div class="sg-level-label">How strict</div>
+      <div class="sg-level-seg" role="radiogroup" aria-label="How strict suggestions are">
+        {#each Object.entries(LEVELS) as [key, L]}
+          <button type="button" role="radio" aria-checked={$suggestionLevel === key} class="sg-level-opt" class:on={$suggestionLevel === key}
+            disabled={!$smartSuggestions} on:click={() => suggestionLevel.set(key)}>{L.label}</button>
+        {/each}
+      </div>
+      <p class="sg-level-desc">{LEVEL_DESC[$suggestionLevel] || LEVEL_DESC.balanced}</p>
+    </div>
+    <div class="sg-muted" data-testid="muted-foods">
+      <div class="sg-level-label">Never suggest for these foods</div>
+      <p class="sg-level-desc">They are not flagged when you log them, and never offered as an idea. You can also tap the X on a suggestion to add one. Foods you ask about directly still get an answer.</p>
+      {#if ($mutedSuggestionFoods || []).length}
+        <ul class="sg-muted-list">
+          {#each $mutedSuggestionFoods as m (m)}
+            <li><span>{m}</span><button type="button" aria-label="Allow suggestions for {m}" on:click={() => removeMuted(m)}><span class="material-symbols-rounded" aria-hidden="true">close</span></button></li>
+          {/each}
+        </ul>
+      {/if}
+      <form class="sg-muted-add" on:submit|preventDefault={addMuted}>
+        <input type="text" class="input" placeholder="Add a food, e.g. Diet Coke" bind:value={_muteInput} maxlength="60" aria-label="Food to never suggest for" />
+        <button type="submit" class="btn btn-secondary" disabled={!_muteInput.trim()}>Add</button>
+      </form>
+    </div>
   </div>
 
   <!-- Group: Meal Card Layout — controls on the meal card itself -->
@@ -346,3 +388,19 @@
     </div>
   </div>
 </div>
+
+<style>
+  .sg-level, .sg-muted { padding: 12px 16px 14px; border-top: 1px solid var(--border); }
+  .sg-level-label { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .sg-level-seg { display: flex; gap: 6px; background: var(--surface-2); border-radius: 999px; padding: 4px; }
+  .sg-level-opt { flex: 1; min-height: 40px; border: 0; border-radius: 999px; background: none; color: var(--text-2); font: inherit; font-weight: 600; cursor: pointer; }
+  .sg-level-opt.on { background: var(--accent); color: var(--bg, #fff); }
+  .sg-level-opt:disabled { opacity: .5; cursor: default; }
+  .sg-level-desc { margin: 8px 0 0; font-size: 13px; line-height: 1.4; color: var(--text-3); }
+  .sg-muted-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .sg-muted-list li { display: flex; align-items: center; gap: 2px; padding: 4px 4px 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: 14px; }
+  .sg-muted-list button { width: 32px; height: 32px; border: 0; background: none; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+  .sg-muted-list .material-symbols-rounded { font-size: 18px; }
+  .sg-muted-add { display: flex; gap: 8px; margin-top: 12px; }
+  .sg-muted-add .input { flex: 1; min-width: 0; font-size: 16px; }
+</style>

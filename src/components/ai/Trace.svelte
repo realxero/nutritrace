@@ -100,6 +100,7 @@
   }
 
   onMount(async () => {
+    window.addEventListener('nt:ask-trace', _onAskTrace);
     // Load history from server; fall back to localStorage for offline / migration
     try {
       const rows = await NtApi.get('/api/ai/history');
@@ -875,6 +876,7 @@
 
   onDestroy(() => {
     window.removeEventListener('nt:chat-updated',  _onChatUpdated);
+    window.removeEventListener('nt:ask-trace', _onAskTrace);
     window.removeEventListener('nt:sync-complete', _refetchChatHistory);
     document.removeEventListener('visibilitychange', _onVisible);
   });
@@ -1271,6 +1273,20 @@
       u.rate = 1.02;
       s.speak(u);
     } catch (e) { console.warn('[trace-voice] speak failed:', e?.message || e); }
+  }
+  // Fork: other screens ("Ask Trace" on a logged food) open the chat with a
+  // question. It is a question, so it never goes to the multi-food log path.
+  let _forceChat = false;
+  async function _askFromApp(text) {
+    panelOpen = true;
+    input = text;
+    _speakNextReply = false;
+    _forceChat = true;
+    try { await send(); } finally { _forceChat = false; }
+  }
+  function _onAskTrace(e) {
+    const t = String(e?.detail?.text || '').trim();
+    if (t) _askFromApp(t);
   }
   async function _askByVoice(text) {
     panelOpen = true;
@@ -1878,7 +1894,7 @@ Diary logging streak: ${ctx.streakText || '(unknown)'}`
     // Fork: several foods in one message ("for breakfast I had X, Y and 6 Z")
     // go to Smart Log's single review list (quantities, an estimate per item,
     // one Add button) instead of the chat logging them one at a time.
-    if (!image && _looksLikeMultiFoodLog(content)) {
+    if (!image && !_forceChat && _looksLikeMultiFoodLog(content)) {
       if (await _tryBatchLog(content)) return;
     }
     loading  = true;
