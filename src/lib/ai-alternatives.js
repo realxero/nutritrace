@@ -11,22 +11,24 @@
  * it is an estimate and the card says to check the label.
  */
 import { normalizeEstimate } from './photo-log.js';
+import { checkAiItem, prefsPromptLines, normalizePrefs } from './food-safety.js';
 
 export const ALT_SYSTEM_PROMPT = `You suggest real, buyable alternatives to a food someone logged, to fit their goal better.
 Reply with JSON only, no prose:
 {"alternatives":[{"name":"<product or dish name>","brand":"<brand or null>","why":"<one short sentence on why it fits the goal>",
  "serving":{"amount":<number>,"unit":"g"|"ml","label":"<e.g. 1 bottle (355 ml)>"},
  "nutrition":{"calories":<n>,"proteins":<g>,"carbohydrates":<g>,"fat":<g>,"sugars":<g>,"fiber":<g>,"sodium":<mg>},
+ "contains":["<each major allergen this item contains or may contain: milk, egg, peanut, tree nuts, soy, wheat, fish, shellfish, sesame>"],
  "source":"web"|"label"|"estimate","confidence":"high"|"medium"|"low"}]}
 Rules:
 - 3 alternatives, best first. They must replace the logged food for the same purpose (a drink for a drink, a snack for a snack, a meal for a meal), similar taste or format, easy to find in ordinary stores or on common menus.
 - Nutrition is for the serving given, using the same units as the serving. Be accurate; if you are not sure of a brand's exact numbers use a generic version of the food and set source "estimate".
 - source "web" or "label" only if you actually looked the product up; never claim it otherwise. Do not invent brands or products.
 - Respect the goal: losing weight = fewer calories with protein kept; gaining = more calories and protein; protein = more protein per calorie; balanced = less sugar and fewer calories; less sodium / less fat / less saturated fat / less sugar = a clearly lower amount of that nutrient without much more of the others; more fiber = clearly more fiber for similar calories.
-- Never suggest anything in the avoid list.`;
+- Never suggest anything in the avoid list. If the user lists allergies, diet or dislikes, every suggestion must respect them completely; "contains" must be honest and complete (use [] only when you are confident none apply).`;
 
 /** The user message: the food, the goal, what is left today, what to avoid. */
-export function buildAltPrompt({ item, focusLabel, remaining = {}, avoid = [], country = '' }) {
+export function buildAltPrompt({ item, focusLabel, remaining = {}, avoid = [], country = '', prefs = null }) {
   const n = item?.nutrition || {};
   const q = parseFloat(item?.quantity) || 1;
   const lines = [
@@ -39,6 +41,7 @@ export function buildAltPrompt({ item, focusLabel, remaining = {}, avoid = [], c
   if (Number.isFinite(remaining.protein)) lines.push(`Protein still to go today: about ${Math.round(remaining.protein)} g`);
   if (country) lines.push(`Shopping in: ${country}`);
   if (avoid.length) lines.push(`Avoid (never suggest): ${avoid.slice(0, 40).join(', ')}`);
+  lines.push(...prefsPromptLines(prefs));
   return lines.join('\n');
 }
 
@@ -54,28 +57,36 @@ export function parseJson(text) {
  * don't support (no calories, impossible density) are dropped, not shown.
  * @returns {Array<{estimate, why, checked:boolean}>}
  */
-export function parseAlternatives(reply, { avoid = [], originalName = '' } = {}) {
+export function parseAlternatives(reply, { avoid = [], originalName = '', prefs = null } = {}) {
   let raw;
   try { raw = parseJson(reply); } catch (e) { throw e; }
   const list = Array.isArray(raw.alternatives) ? raw.alternatives : [];
   const avoidKeys = new Set((avoid || []).map(a => String(a).toLowerCase().trim()).filter(Boolean));
   const out = [];
   const seen = new Set([String(originalName).toLowerCase().trim()]);
+  let hidden = 0;
   for (const a of list) {
     let estimate;
     try { estimate = normalizeEstimate({ ...a, name: a?.name, serving: a?.serving, nutrition: a?.nutrition }); } catch { continue; }
     const key = `${estimate.brand || ''} ${estimate.name}`.toLowerCase().trim();
     if (seen.has(estimate.name.toLowerCase()) || seen.has(key)) continue;
     if ([...avoidKeys].some(k => k.length >= 3 && key.includes(k))) continue;
+    // Allergies, diet and dislikes: by name AND by the allergens the model reported.
+    const safety = checkAiItem({ name: estimate.name, brand: estimate.brand, notes: a?.why }, a?.contains, prefs);
+    if (!safety.ok) { hidden++; continue; }
     seen.add(key);
     out.push({
       estimate,
       why: String(a?.why || '').trim().slice(0, 160),
       checked: estimate.source === 'web' || estimate.source === 'label',
+      allergenConfirmed: safety.confirmed,           // false = the model did not say what it contains
     });
     if (out.length >= 4) break;
   }
-  if (!out.length) throw new Error("Trace didn't find a usable option this time. Try again.");
+  if (!out.length) throw new Error(hidden
+    ? `Trace's options all conflicted with your allergies or preferences (${hidden} hidden). Try again, or ask for something different.`
+    : "Trace didn't find a usable option this time. Try again.");
+  out.hidden = hidden;
   return out;
 }
 
@@ -101,10 +112,10 @@ export async function runAi({ messages, systemPrompt, webSearch = false }) {
 }
 
 /** Ask the configured AI for alternatives to one food. */
-export async function askForAlternatives({ item, focusLabel, remaining, avoid = [], webSearch = true, country = '' }) {
-  const messages = [{ role: 'user', content: buildAltPrompt({ item, focusLabel, remaining, avoid, country }) }];
+export async function askForAlternatives({ item, focusLabel, remaining, avoid = [], webSearch = true, country = '', prefs = null }) {
+  const messages = [{ role: 'user', content: buildAltPrompt({ item, focusLabel, remaining, avoid, country, prefs }) }];
   const reply = await runAi({ messages, systemPrompt: ALT_SYSTEM_PROMPT, webSearch });
-  return parseAlternatives(reply, { avoid, originalName: item?.name });
+  return parseAlternatives(reply, { avoid, originalName: item?.name, prefs: normalizePrefs(prefs) });
 }
 
 /** The free-form question handed to the Trace chat ("Ask Trace" opens the chat with it). */

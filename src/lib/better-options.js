@@ -20,6 +20,7 @@
  */
 import { COMMON_FOODS, commonFoodToFood, searchCommonFoodsScored } from './common-foods.js';
 import { itemTotals, dayTotals, findSwaps, isMuted } from './suggestions.js';
+import { isAllowed } from './food-safety.js';
 
 const r0 = (n) => Math.round(n);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -149,14 +150,14 @@ function why(focus, d) {
  * @param {string[]} p.muted   never-suggest names (never offered as a replacement)
  * @returns {{kind:'swap'|'family'|'none', options:Array, category:string|null}}
  */
-export function findBetterOptions(item, { focus = 'balanced', saved = [], muted = [], limit = 4 } = {}) {
+export function findBetterOptions(item, { focus = 'balanced', saved = [], muted = [], limit = 4, prefs = null } = {}) {
   if (!item || item.type === 'quick_calories') return { kind: 'none', options: [], category: null };
   const q = num(item.quantity) || 1;
   const cur = itemTotals(item);
 
   // Sugary drinks: the zero-sugar twin, however small the saving (the user asked).
   const swaps = ['lose', 'balanced', 'sugars'].includes(focus)
-    ? findSwaps([{ ...item }], saved, { level: 'thorough', ignoreMuted: true }) : [];
+    ? findSwaps([{ ...item }], saved, { level: 'thorough', ignoreMuted: true, prefs }) : [];
   if (swaps.length) {
     const sw = swaps[0];
     return {
@@ -177,7 +178,7 @@ export function findBetterOptions(item, { focus = 'balanced', saved = [], muted 
   const seen = new Set();
   for (const c of pool) {
     const name = String(c.food.name || '').toLowerCase();
-    if (!name || name === itemName || seen.has(name) || isMuted(c.food.name, muted)) continue;
+    if (!name || name === itemName || seen.has(name) || isMuted(c.food.name, muted) || !isAllowed(c.food, prefs)) continue;
     const one = per(c.food);
     if (one.calories <= 0) continue;
     // A serving a fraction of the size is not a like-for-like swap (a lime for a banana).

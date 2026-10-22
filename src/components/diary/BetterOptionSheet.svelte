@@ -25,7 +25,7 @@
   import { limitFor, WATCH } from '../../lib/day-suggestions.js';
   import { askForAlternatives, traceQuestion } from '../../lib/ai-alternatives.js';
   import { swapDiaryItem, undoSwap } from '../../lib/suggestion-actions.js';
-  import { aiEffectivelyEnabled, photoLogWebSearch, targetWeightKg, mutedSuggestionFoods } from '../../stores/settings.js';
+  import { aiEffectivelyEnabled, photoLogWebSearch, targetWeightKg, mutedSuggestionFoods, foodPrefs } from '../../stores/settings.js';
   import { showSuccess, showError, showUndo } from '../../stores/toast.js';
 
   export let open = false;
@@ -77,8 +77,9 @@
   $: focusNutrient = (['sodium', 'fat', 'saturated-fat', 'fiber'].includes(focus) && item)
     ? `${Math.round(cur[focus] * 10) / 10} ${WATCH[focus].unit} ${WATCH[focus].label.toLowerCase()}` : '';
   $: cur = item ? itemTotals(item) : itemTotals(null);
-  $: local = item ? findBetterOptions(item, { focus, saved, muted: $mutedSuggestionFoods || [] }) : { kind: 'none', options: [] };
+  $: local = item ? findBetterOptions(item, { focus, saved, muted: $mutedSuggestionFoods || [], prefs: $foodPrefs }) : { kind: 'none', options: [] };
   $: avoid = [...($mutedSuggestionFoods || [])];
+  $: hasAllergyPrefs = ($foodPrefs.allergens || []).length > 0 || ($foodPrefs.avoid || []).length > 0;
 
   const sign = (n) => (n > 0 ? `+${n}` : `${n}`);
 
@@ -88,7 +89,7 @@
     try {
       const list = await askForAlternatives({
         item, focusLabel, remaining, avoid, webSearch: $photoLogWebSearch,
-        country: DB.getSetting('offSearchCountry', '') || '',
+        country: DB.getSetting('offSearchCountry', '') || '', prefs: $foodPrefs,
       });
       ai = { state: 'done', list, error: '' };
     } catch (e) {
@@ -187,11 +188,13 @@
                   <span class="bo-sub">{a.estimate.label || `${a.estimate.amount} ${a.estimate.unit}`} · {Math.round(a.estimate.nutrition.calories)} kcal ({sign(d.k)}) · {Math.round(a.estimate.nutrition.proteins || 0)} g protein ({sign(d.p)})</span>
                   {#if a.why}<span class="bo-why">{a.why}</span>{/if}
                   <span class="bo-badge" class:checked={a.checked}>{a.checked ? 'Checked online' : 'Estimate · check the label'}</span>
+                  {#if hasAllergyPrefs && !a.allergenConfirmed}<span class="bo-badge bo-warn">Allergens not confirmed · check the label</span>{/if}
                 </span>
                 <button type="button" class="bo-act" disabled={!!busy} on:click={() => swapAi(a)} data-testid="swap-ai">Swap</button>
               </li>
             {/each}
           </ul>
+          {#if ai.list.hidden}<p class="bo-sub">{ai.list.hidden} option{ai.list.hidden === 1 ? '' : 's'} hidden because of your allergies or preferences.</p>{/if}
           <button type="button" class="bo-link" on:click={findReal}>Ask again</button>
         {/if}
         <button type="button" class="bo-link" on:click={askInChat} data-testid="ask-in-chat">Ask Trace in the chat instead</button>
@@ -235,6 +238,7 @@
   .bo-name { font-size: 15px; font-weight: 600; color: var(--text-1); }
   .bo-why { font-size: 13px; color: var(--text-2); line-height: 1.35; }
   .bo-badge { align-self: flex-start; margin-top: 3px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-3); }
+  .bo-badge.bo-warn { background: rgba(234, 179, 8, .16); color: #eab308; }
   .bo-badge.checked { background: var(--accent-dim); color: var(--accent); }
   .bo-act { min-height: 44px; min-width: 72px; padding: 0 16px; border-radius: 999px; border: 0; cursor: pointer; font-weight: 700; font-size: 14px; background: var(--accent-dim); color: var(--accent); }
   .bo-act:disabled { opacity: .5; }

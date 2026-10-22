@@ -41,7 +41,7 @@ export function limitFor(nutrient, limits = {}) {
  * Over-the-limit nutrients, worst first, each with the swap that helps most.
  * @returns {Array<{id,kind:'nutrient',nutrient,label,unit,eaten,limit,ratio,over,limitSource,itemIndex,from,to,delta,why}>}
  */
-export function findNutrientSwaps({ items = [], limits = {}, watched = DEFAULT_WATCHED, saved = [], level = 'balanced', muted = [], skipIndexes = new Set() } = {}) {
+export function findNutrientSwaps({ items = [], limits = {}, watched = DEFAULT_WATCHED, saved = [], level = 'balanced', muted = [], skipIndexes = new Set(), prefs = null } = {}) {
   const L = levelOf(level);
   const totals = dayTotals(items);
   const rows = [];
@@ -63,7 +63,7 @@ export function findNutrientSwaps({ items = [], limits = {}, watched = DEFAULT_W
       .slice(0, 3);
 
     for (const c of contributors) {
-      const best = findBetterOptions(c.item, { focus: nutrient, saved, muted, limit: 1 }).options[0];
+      const best = findBetterOptions(c.item, { focus: nutrient, saved, muted, limit: 1, prefs }).options[0];
       if (!best) continue;
       rows.push({
         id: `nutrient:${nutrient}:${c.item.uuid || c.itemIndex}`,
@@ -87,13 +87,13 @@ export function buildDaySuggestions(p = {}) {
   const base = suggestForDay(p);
   const out = { ...base, nutrients: [], fiber: null };
   const { date, today, items = [], completed = false, saved = [], common = [], calorieGoal = null, limits = {},
-    watched = DEFAULT_WATCHED, nutrients = true, dismissed = [], level = 'balanced', muted = [], hour = new Date().getHours() } = p;
+    watched = DEFAULT_WATCHED, nutrients = true, dismissed = [], level = 'balanced', muted = [], hour = new Date().getHours(), prefs = null } = p;
   if (!nutrients || base.state === 'past' || completed) return out;
   const hidden = new Set(dismissed || []);
 
   if (items.length) {
     const already = new Set((base.swaps || []).map(s => s.itemIndex));   // a sugary drink is already covered
-    out.nutrients = findNutrientSwaps({ items, limits, watched, saved, level, muted, skipIndexes: already })
+    out.nutrients = findNutrientSwaps({ items, limits, watched, saved, level, muted, skipIndexes: already, prefs })
       .filter(r => !hidden.has(r.id));
   }
 
@@ -102,7 +102,7 @@ export function buildDaySuggestions(p = {}) {
   if (watched.includes('fiber') && (items.length || state === 'future') && !tooEarly) {
     const lim = limitFor('fiber', limits);
     if (lim) {
-      const r = findGapIdeas({ nutrient: 'fiber', goal: lim.value, items, calorieGoal, saved, common, level, muted });
+      const r = findGapIdeas({ nutrient: 'fiber', goal: lim.value, items, calorieGoal, saved, common, level, muted, prefs });
       const id = `fiber:${date}`;
       if (r.ideas.length && !hidden.has(id)) out.fiber = { id, ...r };
     }

@@ -49,7 +49,7 @@ export const USER_PREFS = new Set([
   'statsMetricOrder','statsHiddenMetrics',
   // User profile (collected by Wizard, used for goal calculation; sync so multi-device
   // users see the same body profile)
-  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','recentRestaurants','activity','tdee',
+  'gender','dob','height_cm','weight_kg','target_weight','targetWeightDate','smartSuggestions','suggestSwaps','suggestProtein','dismissedSuggestions','suggestionLevel','mutedSuggestionFoods','suggestNutrients','watchedNutrients','recentRestaurants','dietType','foodAllergens','foodAvoid','foodDislikes','shoppingList','activity','tdee',
   // Native local-mode profile fields (no auth → no users table; these stand in for
   // the server's full_name / nickname / avatar_url). In USER_PREFS so they're
   // captured by the local full-backup ZIP. In server mode they're unused.
@@ -568,6 +568,16 @@ export const suggestNutrients  = createSettingStore('suggestNutrients',  true);
 export const watchedNutrients  = createSettingStore('watchedNutrients',  ['sodium', 'saturated-fat', 'fat', 'sugars', 'fiber']);
 // Restaurants asked about recently (newest first, max 6), offered as one-tap chips.
 export const recentRestaurants = createSettingStore('recentRestaurants', []);
+// Allergies and food preferences (see lib/food-safety.js). They keep foods out of every suggestion,
+// the day planner and the AI prompts. Name-based, so a safety net, not a guarantee.
+export const dietType      = createSettingStore('dietType',      'none');   // 'none' | 'pescatarian' | 'vegetarian' | 'vegan'
+export const foodAllergens = createSettingStore('foodAllergens', []);       // ids from ALLERGENS
+export const foodAvoid     = createSettingStore('foodAvoid',     []);       // other things to avoid completely (free text)
+export const foodDislikes  = createSettingStore('foodDislikes',  []);       // foods they simply don't like
+export const foodPrefs = derived([dietType, foodAllergens, foodAvoid, foodDislikes],
+  ([$d, $a, $v, $x]) => ({ diet: $d || 'none', allergens: $a || [], avoid: $v || [], dislikes: $x || [] }));
+// The shopping list: [{ id, name, qty, unit, aisle, checked, source }]
+export const shoppingList = createSettingStore('shoppingList', []);
 foodOverrides.subscribe((v) => setFoodOverrides(v));
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group

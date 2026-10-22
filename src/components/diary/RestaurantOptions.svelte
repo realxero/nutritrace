@@ -21,7 +21,7 @@
   import { mealForSuggestion } from '../../lib/suggestions.js';
   import { defaultMealForNow } from '../../lib/quick-add.js';
   import { localDateStr } from '../../lib/db.js';
-  import { aiEffectivelyEnabled, photoLogWebSearch, targetWeightKg, mutedSuggestionFoods, recentRestaurants, mealNames } from '../../stores/settings.js';
+  import { aiEffectivelyEnabled, photoLogWebSearch, targetWeightKg, mutedSuggestionFoods, recentRestaurants, mealNames, foodPrefs } from '../../stores/settings.js';
   import { showError, showUndo } from '../../stores/toast.js';
 
   export let items = [];
@@ -45,6 +45,7 @@
   let error = '';
   let busy = '';
   let saved = [];
+  $: hasAllergyPrefs = ($foodPrefs.allergens || []).length > 0 || ($foodPrefs.avoid || []).length > 0;
 
   onMount(async () => { try { saved = await NtApi.getFoods(); } catch { saved = []; } });
 
@@ -63,7 +64,7 @@
       result = await askForMenuOptions({
         restaurant: name, focusLabel, remaining: ctx.remaining, replacing: original,
         avoid: $mutedSuggestionFoods || [], webSearch: $photoLogWebSearch,
-        country: DB.getSetting('offSearchCountry', '') || '', mealName: names[mealIdx] || '',
+        country: DB.getSetting('offSearchCountry', '') || '', mealName: names[mealIdx] || '', prefs: $foodPrefs,
       });
       recentRestaurants.set(rememberRestaurant($recentRestaurants, name));
       state = 'done';
@@ -140,12 +141,14 @@
               <span class="ro-badges">
                 <span class="ro-badge" class:menu={it.fromMenu}>{it.fromMenu ? 'From the menu' : 'Estimate · check the menu'}</span>
                 {#if fits(it)}<span class="ro-badge fit">Fits your calories</span>{/if}
+                {#if hasAllergyPrefs && !it.allergenConfirmed}<span class="ro-badge warn">Allergens not confirmed · ask the restaurant</span>{/if}
               </span>
             </span>
             <button type="button" class="ro-act" disabled={!!busy} on:click={() => choose(it)} data-testid="menu-choose">{original ? 'Swap' : 'Add'}</button>
           </li>
         {/each}
       </ul>
+      {#if result.hidden}<p class="ro-sub">{result.hidden} item{result.hidden === 1 ? '' : 's'} hidden because of your allergies or preferences.</p>{/if}
     {/if}
     {#if restaurant.trim()}
       <button type="button" class="ro-link" on:click={askInChat} data-testid="menu-ask-chat">Ask Trace in the chat instead</button>
@@ -172,6 +175,7 @@
   .ro-why { font-size: 13px; color: var(--text-2); line-height: 1.35; }
   .ro-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
   .ro-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-3); }
+  .ro-badge.warn { background: rgba(234, 179, 8, .16); color: #eab308; }
   .ro-badge.menu, .ro-badge.fit { background: var(--accent-dim); color: var(--accent); }
   .ro-act { min-height: 44px; min-width: 72px; padding: 0 16px; border-radius: 999px; border: 0; cursor: pointer; font-weight: 700; font-size: 14px; background: var(--accent-dim); color: var(--accent); }
   .ro-act:disabled { opacity: .5; }

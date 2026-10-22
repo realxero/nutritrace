@@ -18,6 +18,8 @@
   import SuggestionsCard from '../components/diary/SuggestionsCard.svelte'; // fork: swaps + protein ideas
   import BetterOptionSheet from '../components/diary/BetterOptionSheet.svelte'; // fork: on-demand better option
   import RestaurantSheet from '../components/diary/RestaurantSheet.svelte';     // fork: eating out, menu options via Trace
+  import DayPlanSheet from '../components/diary/DayPlanSheet.svelte';           // fork: plan my whole day
+  import ShoppingListSheet from '../components/diary/ShoppingListSheet.svelte'; // fork: shopping list
   import WaterWidget       from '../components/diary/WaterWidget.svelte';
   import BodyStatsWidget   from '../components/diary/BodyStatsWidget.svelte';
   import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
@@ -1663,6 +1665,8 @@
   let betterItem = null;
   let showRestaurant = false;
   let restoMeal = null;
+  let showDayPlan = false;
+  let showShopping = false;
   function openBetter(item) {
     if (!item || item.type === 'quick_calories') return;
     betterItem = item;
@@ -2093,6 +2097,12 @@
           <span class="material-symbols-rounded">water_drop</span>
         </button>
       {/if}
+      <button class="btn-icon accent" on:click={() => showDayPlan = true} aria-label="Plan my whole day" title="Plan my whole day" data-testid="open-day-plan">
+        <span class="material-symbols-rounded">auto_awesome</span>
+      </button>
+      <button class="btn-icon accent" on:click={() => showShopping = true} aria-label="Shopping list" title="Shopping list" data-testid="open-shopping">
+        <span class="material-symbols-rounded">shopping_cart</span>
+      </button>
       <button class="btn-icon accent" on:click={() => diaryShowNutritionSummary.set(true)} aria-label={$_('diary.actions.nutrition_summary')} title={$_('diary.actions.nutrition_summary_long')}>
         <span class="material-symbols-rounded">monitoring</span>
       </button>
@@ -2264,7 +2274,7 @@
     {/if}
     <!-- Fork: proactive suggestions (drink swaps, protein ideas); Settings → Diary → Smart Suggestions -->
     <SuggestionsCard date={$currentDate} items={entry.items || []} completed={_dayIsComplete}
-      calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />
+      calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} on:plan={() => showDayPlan = true} />
     <!-- Meal groups. Rendered via a Svelte 5 snippet `mealCard` so we
          can consume it twice below — once per column (mealsLeft +
          mealsRight) — without duplicating ~230 lines of card markup.
@@ -3228,6 +3238,7 @@
     bind:open={showMealAction}
     title={meals[actionMealIdx] + (_hasItems ? ` · ${_mealItems.length} item${_mealItems.length === 1 ? '' : 's'}` : ' · empty')}
     actions={_hasItems ? [
+      { label: 'Plan my whole day…', icon: 'auto_awesome', value: 'plan_day' },
       { label: 'Eating out…',    icon: 'restaurant_menu', value: 'restaurant' },
       { label: 'Move Items to…', icon: 'swap_horiz',   value: 'move'      },
       { label: 'Copy',           icon: 'content_copy', value: 'copy_to'   },
@@ -3235,10 +3246,12 @@
       { label: 'Clear All Items', icon: 'delete_sweep', value: 'clear', danger: true },
     ] : [
       { label: 'Add Food', icon: 'add', value: 'add' },
+      { label: 'Plan my whole day…', icon: 'auto_awesome', value: 'plan_day' },
       { label: 'Eating out…', icon: 'restaurant_menu', value: 'restaurant' },
     ]}
     on:select={(e) => {
       if (e.detail?.value === 'add') openAddFood(actionMealIdx);
+      else if (e.detail?.value === 'plan_day') { _lockAndOpen(() => showDayPlan = true); }
       else if (e.detail?.value === 'restaurant') { restoMeal = actionMealIdx; _lockAndOpen(() => showRestaurant = true); }
       else onMealAction(e);
     }}
@@ -3580,6 +3593,10 @@
 <AddActivitySheet bind:open={showActivitySheet} date={$currentDate} entry={editingActivity} on:close={() => editingActivity = null} />
 
 <QuickCaloriesSheet bind:open={_quickSheetOpen} meal={_quickSheetMeal} mealName={meals[_quickSheetMeal] || ''} />
+
+<DayPlanSheet bind:open={showDayPlan} date={$currentDate} items={entry.items || []}
+  calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />
+<ShoppingListSheet bind:open={showShopping} />
 
 <RestaurantSheet bind:open={showRestaurant} meal={restoMeal} items={entry.items || []} date={$currentDate}
   calorieGoal={caloriesGoalAdjusted} proteinGoal={protGoal} limits={nutrientLimits} />

@@ -7,13 +7,52 @@
     foodsShowYesterdayMeals, foodsSort, mealsSort, recipesSort,
     foodsDefaultSource, offEnabled, usdaEnabled,
     barcodeBeep, barcodeFlashlight, cropPhotos,
+    dietType, foodAllergens, foodAvoid, foodDislikes,
   } from '../../stores/settings.js';
+  import TagListEditor from '../../components/settings/TagListEditor.svelte';
+  import { ALLERGENS, DIETS, SAFETY_NOTE } from '../../lib/food-safety.js';
+  const toggleAllergen = (id) => foodAllergens.set(($foodAllergens || []).includes(id) ? $foodAllergens.filter(x => x !== id) : [...($foodAllergens || []), id]);
   import { DB } from '../../lib/db.js';
   // Mealie is a plain localStorage flag (not a store), unlike OFF/USDA.
   const _mealieEnabled = DB.getSetting('mealieEnabled', false);
 </script>
 
 <div class="section-body">
+
+  <!-- Group: Allergies & preferences (fork) — keeps foods out of suggestions, the day planner and AI answers -->
+  <p class="settings-group-heading">Allergies &amp; Food Preferences</p>
+  <p class="settings-group-sub">Foods that match are never suggested: not in swaps, ideas, "better option", the day planner or Trace's answers.</p>
+  <div class="card settings-card" data-testid="food-prefs">
+    <div class="pref-block">
+      <div class="setting-label">Allergies</div>
+      <div class="pref-chips" role="group" aria-label="Allergies">
+        {#each ALLERGENS as a}
+          <button type="button" class="pref-chip" class:on={($foodAllergens || []).includes(a.id)} aria-pressed={($foodAllergens || []).includes(a.id)}
+            on:click={() => toggleAllergen(a.id)}>{a.label}</button>
+        {/each}
+      </div>
+      <div class="setting-label" style="margin-top:16px">Other things to avoid completely</div>
+      <div class="setting-desc">An intolerance or any ingredient, e.g. lactose, mustard, MSG.</div>
+      <TagListEditor list={$foodAvoid} placeholder="Add something to avoid" on:change={e => foodAvoid.set(e.detail)} />
+    </div>
+    <div class="setting-divider"></div>
+    <div class="setting-row">
+      <div><span class="setting-label">Diet</span><div class="setting-desc">Keeps meat, fish or animal products out of suggestions.</div></div>
+      <div class="select-wrap" style="width:200px">
+        <select class="select sel-sm" value={$dietType} on:change={e => dietType.set(e.currentTarget.value)} data-testid="diet-select">
+          {#each DIETS as d}<option value={d.id}>{d.label}</option>{/each}
+        </select>
+      </div>
+    </div>
+    <div class="setting-divider"></div>
+    <div class="pref-block">
+      <div class="setting-label">Foods I don't like</div>
+      <div class="setting-desc">Never suggested. They are still fine to log.</div>
+      <TagListEditor list={$foodDislikes} placeholder="Add a food you dislike" on:change={e => foodDislikes.set(e.detail)} />
+    </div>
+    <div class="setting-divider"></div>
+    <p class="pref-note" data-testid="safety-note">{SAFETY_NOTE}</p>
+  </div>
 
   <!-- Group: Food Row Display — what shows on each row in the Foods / Meals list -->
   <p class="settings-group-heading">Food Row Display</p>
@@ -122,3 +161,11 @@
   </div>
 
 </div>
+
+<style>
+  .pref-block { padding: 14px 16px; }
+  .pref-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .pref-chip { min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .pref-chip.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .pref-note { margin: 0; padding: 12px 16px 14px; font-size: 12.5px; line-height: 1.45; color: var(--text-3); }
+</style>

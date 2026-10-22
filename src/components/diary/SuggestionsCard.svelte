@@ -11,7 +11,7 @@
   Settings → Diary → Smart Suggestions. Rules live in lib/suggestions.js and lib/day-suggestions.js.
 -->
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { NtApi } from '../../lib/api.js';
   import { localDateStr } from '../../lib/db.js';
   import { COMMON_FOODS, commonFoodToFood } from '../../lib/common-foods.js';
@@ -19,7 +19,7 @@
   import { buildDaySuggestions } from '../../lib/day-suggestions.js';
   import { defaultMealForNow } from '../../lib/quick-add.js';
   import { swapDiaryItem, addSuggestedFood, undoAdd, undoSwap } from '../../lib/suggestion-actions.js';
-  import { smartSuggestions, suggestSwaps, suggestProtein, suggestNutrients, watchedNutrients, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods } from '../../stores/settings.js';
+  import { smartSuggestions, suggestSwaps, suggestProtein, suggestNutrients, watchedNutrients, dismissedSuggestions, mealNames, suggestionLevel, mutedSuggestionFoods, foodPrefs } from '../../stores/settings.js';
   import { showSuccess, showError, showUndo } from '../../stores/toast.js';
   import FoodIcon from '../ui/FoodIcon.svelte';
   import ActionSheet from '../ui/ActionSheet.svelte';
@@ -29,6 +29,7 @@
   export let completed = false;
   export let calorieGoal = null;
   export let proteinGoal = null;
+  const dispatch = createEventDispatcher();
   export let limits = {};   // the user's goals for sodium, saturated fat, fat, sugar, fiber
 
   let saved = [];
@@ -47,7 +48,7 @@
         date, today, items, completed, proteinGoal, calorieGoal, saved, common, limits,
         enabled: { swaps: $suggestSwaps, protein: $suggestProtein }, dismissed: dismissedToday,
         nutrients: $suggestNutrients, watched: $watchedNutrients || [],
-        level: $suggestionLevel, muted: $mutedSuggestionFoods || [],
+        level: $suggestionLevel, muted: $mutedSuggestionFoods || [], prefs: $foodPrefs,
       })
     : { state: 'past', swaps: [], protein: null, fiber: null, nutrients: [], planning: false };
   // Protein and fiber share one "foods that close the gap" block.
@@ -130,6 +131,12 @@
     </button>
 
     {#if open}
+      {#if s.planning}
+        <div class="sg-item">
+          <div class="sg-body"><div class="sg-line">Nothing planned yet</div><div class="sg-sub">Build a whole day around your goals, with swaps for anything you don't fancy.</div></div>
+          <button type="button" class="sg-act" on:click={() => dispatch('plan')} data-testid="card-plan-day">Plan it</button>
+        </div>
+      {/if}
       {#each s.swaps as sw (sw.id)}
         <div class="sg-item" data-testid="suggestion-swap">
           <div class="sg-body">

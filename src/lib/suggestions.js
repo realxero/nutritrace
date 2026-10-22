@@ -16,6 +16,8 @@
  * scolds, never hides anything, always one tap to ignore.
  */
 
+import { isAllowed } from './food-safety.js';
+
 const r0 = (n) => Math.round(n);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
@@ -123,7 +125,7 @@ export function findSavedTwin(item, saved = []) {
  * Swap suggestions for the day's items.
  * @returns {Array<{id,kind:'swap',itemIndex,from,to,savesKcal,savesSugar,source}>}
  */
-export function findSwaps(items, saved = [], { level = 'balanced', muted = [], ignoreMuted = false } = {}) {
+export function findSwaps(items, saved = [], { level = 'balanced', muted = [], ignoreMuted = false, prefs = null } = {}) {
   const L = levelOf(level);
   const out = [];
   (items || []).forEach((item, itemIndex) => {
@@ -136,7 +138,7 @@ export function findSwaps(items, saved = [], { level = 'balanced', muted = [], i
     // A real sugar figure must clear the bar; with none on record, calories stand in.
     if (sugarKnown ? t.sugars < L.minSugarG : t.calories < L.minSugarG * 6.5) return;
 
-    const twin = findSavedTwin(item, saved);
+    const twin = findSavedTwin(item, (saved || []).filter(f => isAllowed(f, prefs)));
     let to;
     if (twin) {
       to = { ...twin, quantity: num(item.quantity) || 1 };
@@ -190,7 +192,7 @@ function candidateFrom(food, nutrient, { saved }) {
  * @param {Array}  p.saved        the user's saved foods
  * @param {Array}  p.common       built-in foods already converted to app foods
  */
-export function findGapIdeas({ nutrient = 'proteins', goal = null, items = [], calorieGoal = null, saved = [], common = [], limit, level = 'balanced', muted = [] } = {}) {
+export function findGapIdeas({ nutrient = 'proteins', goal = null, items = [], calorieGoal = null, saved = [], common = [], limit, level = 'balanced', muted = [], prefs = null } = {}) {
   const L = levelOf(level);
   limit = limit ?? L.ideas;
   if (!(goal > 0)) return { gap: 0, ideas: [], tight: false };
@@ -208,7 +210,7 @@ export function findGapIdeas({ nutrient = 'proteins', goal = null, items = [], c
   for (const f of common || []) { const c = candidateFrom(f, nutrient, { saved: false }); if (c) pool.push(c); }
 
   const scored = pool
-    .filter(c => c.kcal <= kcalCap && !eaten.has(c.food.name.toLowerCase()) && !isMuted(c.food.name, muted))
+    .filter(c => c.kcal <= kcalCap && !eaten.has(c.food.name.toLowerCase()) && !isMuted(c.food.name, muted) && isAllowed(c.food, prefs))
     .map(c => {
       const density = c.amount / c.kcal;
       const useful = Math.min(c.amount, gap);
@@ -249,21 +251,21 @@ export function findProteinIdeas({ proteinGoal = null, ...rest } = {}) {
 export function suggestForDay({
   date, today, items = [], completed = false, proteinGoal = null, calorieGoal = null,
   saved = [], common = [], enabled = { swaps: true, protein: true }, dismissed = [],
-  level = 'balanced', muted = [], hour = new Date().getHours(),
+  level = 'balanced', muted = [], hour = new Date().getHours(), prefs = null,
 } = {}) {
   const state = dayState(date, today);
   const hidden = new Set(dismissed || []);
   const out = { state, swaps: [], protein: null, planning: false };
   if (state === 'past' || completed) return out;
 
-  if (enabled.swaps && items.length) out.swaps = findSwaps(items, saved, { level, muted }).filter(s => !hidden.has(s.id));
+  if (enabled.swaps && items.length) out.swaps = findSwaps(items, saved, { level, muted, prefs }).filter(s => !hidden.has(s.id));
 
   if (enabled.protein) {
     // An empty day is only worth a nudge when it is a day still being planned.
     // Gentle waits until the afternoon to talk about today's protein; planning a future day is always fair.
     const tooEarly = state === 'today' && hour < levelOf(level).minHourToday;
     if ((items.length || state === 'future') && !tooEarly) {
-      const ideas = findProteinIdeas({ items, proteinGoal, calorieGoal, saved, common, level, muted });
+      const ideas = findProteinIdeas({ items, proteinGoal, calorieGoal, saved, common, level, muted, prefs });
       const id = `protein:${date}`;
       if (ideas.ideas.length && !hidden.has(id)) out.protein = { id, ...ideas };
       out.planning = state === 'future' && !items.length;
