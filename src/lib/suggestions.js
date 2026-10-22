@@ -17,6 +17,7 @@
  */
 
 import { isAllowed } from './food-safety.js';
+import { servingSense } from './serving-sense.js';
 
 const r0 = (n) => Math.round(n);
 const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -175,11 +176,18 @@ const NOT_A_FIT = /\b(chips?|cookie|candy|cake|donut|doughnut|ice cream|soda|jui
 function candidateFrom(food, nutrient, { saved }) {
   const spec = GAP_SPEC[nutrient];
   const n = food?.nutrition || {};
-  const p = num(n[nutrient]), k = num(n.calories);
+  // A saved food with a placeholder 100 g serving (powder, jerky, nuts) is judged, shown and
+  // added at a realistic serving, not at 100 g.
+  const sense = saved ? servingSense(food) : { scaled: false, factor: 1 };
+  const f = sense.factor;
+  const p = num(n[nutrient]) * f, k = num(n.calories) * f;
   if (!food?.name || k <= 0 || p < spec.minPerServing) return null;
   if (p / k < spec.minPerKcal) return null;
   if (NOT_A_FIT.test(food.name) && !/protein|fiber/i.test(food.name)) return null;
-  return { food, amount: r0(p), protein: nutrient === 'proteins' ? r0(p) : undefined, kcal: r0(k), saved: !!saved, uses: num(food.usage_count) };
+  return {
+    food, amount: r0(p), protein: nutrient === 'proteins' ? r0(p) : undefined, kcal: r0(k), saved: !!saved, uses: num(food.usage_count),
+    factor: f, servingText: sense.scaled ? `${sense.portion} ${sense.unit}` : null,
+  };
 }
 
 /**
@@ -215,8 +223,10 @@ export function findGapIdeas({ nutrient = 'proteins', goal = null, items = [], c
       const density = c.amount / c.kcal;
       const useful = Math.min(c.amount, gap);
       const calFit = calLeft == null ? 0 : (c.kcal / Math.max(calLeft, 150)) * 10;
-      // Foods you already log beat a slightly better stranger, but only once they are habits.
-      const score = useful + density * (nutrient === 'fiber' ? 120 : 40) + (c.saved ? 12 + Math.min(c.uses, 10) * 2 : 0) - calFit;
+      // Foods you already log beat a slightly better stranger, but only once they are habits:
+      // a food that is merely saved, and never used, gets no head start.
+      const habit = c.saved && c.uses >= 2;
+      const score = useful + density * (nutrient === 'fiber' ? 120 : 40) + (habit ? 12 + Math.min(c.uses, 10) * 2 : 0) - calFit;
       return { ...c, score };
     })
     .sort((a, b) => b.score - a.score);

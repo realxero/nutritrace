@@ -96,7 +96,7 @@
     busy = idea.food.name;
     try {
       const meal = mealForSuggestion({ state: s.state, items, mealCount: names.length, timeMeal: defaultMealForNow(names.length) });
-      const { food, item: added } = await addSuggestedFood(idea.food, { meal, date, saved });
+      const { food, item: added } = await addSuggestedFood(idea.food, { meal, date, saved, quantity: idea.factor || 1 });
       if (food && !saved.some(f => f.id === food.id)) saved = [...saved, food];
       showUndo(`Added ${idea.food.name} to ${names[meal] || 'meal'}`, () => undoAdd(date, added));
     } catch (e) { showError(e?.message || 'Could not add that'); }
@@ -205,8 +205,8 @@
               <li class="sg-idea">
                 <span class="sg-thumb"><FoodIcon name={idea.food.name} icon={idea.food.icon} brand={idea.food.brand} emoji={idea.food.emoji} size={22} /></span>
                 <span class="sg-body">
-                  <span class="sg-line sg-name">{idea.food.name}</span>
-                  <span class="sg-sub">{idea.food.portion} {idea.food.unit} · {idea.amount} g {g.nutrient} · {idea.kcal} kcal{idea.saved ? ' · yours' : ''}</span>
+                  <span class="sg-line sg-name">{idea.food.name}{#if idea.food.brand && idea.food.brand !== 'USDA'}<span class="sg-brand"> · {idea.food.brand}</span>{/if}</span>
+                  <span class="sg-sub">{idea.servingText || `${idea.food.portion} ${idea.food.unit}`} · {idea.amount} g {g.nutrient} · {idea.kcal} kcal{idea.saved ? (idea.uses >= 2 ? ' · you log it often' : ' · from your foods') : ''}</span>
                 </span>
                 <button type="button" class="sg-add" aria-label="Add {idea.food.name}" disabled={!!busy} on:click={() => addIdea(idea)} data-testid="idea-add">
                   <span class="material-symbols-rounded" aria-hidden="true">add</span>
@@ -249,6 +249,7 @@
   .sg-idea:first-child { border-top: 0; }
   .sg-thumb { width: 34px; height: 34px; flex-shrink: 0; border-radius: var(--radius-sm); background: var(--accent-dim); display: flex; align-items: center; justify-content: center; }
   .sg-name { font-weight: 600; }
+  .sg-brand { font-weight: 400; color: var(--text-3); }
   .sg-add { width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; border: 0; cursor: pointer; margin-left: 8px;
             background: var(--accent-dim); color: var(--accent); display: flex; align-items: center; justify-content: center; }
   .sg-add .material-symbols-rounded { font-size: 24px; }

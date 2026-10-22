@@ -155,7 +155,7 @@
           {#each local.options as o (o.food.name)}
             <li class="bo-row">
               <span class="bo-body">
-                <span class="bo-name">{o.food.name}{o.source === 'saved' ? ' · yours' : ''}</span>
+                <span class="bo-name">{o.food.name}{o.source === 'saved' ? ' · from your foods' : ''}</span>
                 <span class="bo-sub">{o.food.portion} {o.food.unit} · {o.why}</span>
               </span>
               <button type="button" class="bo-act" disabled={!!busy} on:click={() => swapLocal(o)} data-testid="swap-local">Swap</button>

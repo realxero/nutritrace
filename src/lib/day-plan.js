@@ -14,6 +14,7 @@
 import { COMMON_FOODS, commonFoodToFood, searchCommonFoodsScored } from './common-foods.js';
 import { itemTotals, isMuted } from './suggestions.js';
 import { isAllowed } from './food-safety.js';
+import { servingSense } from './serving-sense.js';
 
 const r0 = (n) => Math.round(n);
 const half = (n) => Math.round(n * 2) / 2;
@@ -79,6 +80,7 @@ const BREAKFASTY = /\b(yogurt|yoghurt|skyr|egg|eggs|cottage|tofu|oat|oatmeal|cer
  */
 export function classifyRole(food) {
   if (!food || !food.name) return [];
+  if (servingSense(food).scaled) return [];                // a powder, jerky or nuts saved at "100 g" is not a meal component
   const name = String(food.name);
   const [best] = searchCommonFoodsScored(name, 1);
   if (best && best.score >= 85) {

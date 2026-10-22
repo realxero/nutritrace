@@ -152,7 +152,7 @@
                 <button type="button" class="dp-item" on:click={() => openItem(mp, ip)} aria-label="Change {it.food.name}">
                   <span class="dp-thumb"><FoodIcon name={it.food.name} icon={it.food.icon} brand={it.food.brand} size={22} /></span>
                   <span class="dp-body">
-                    <span class="dp-name">{it.food.name}{#if it.food.brand && it.food.brand !== 'USDA'} <span class="dp-brand">· {it.food.brand}</span>{/if}{#if it.yours} <span class="dp-yours">yours</span>{/if}</span>
+                    <span class="dp-name">{it.food.name}{#if it.food.brand && it.food.brand !== 'USDA'} <span class="dp-brand">· {it.food.brand}</span>{/if}{#if it.yours} <span class="dp-yours">your food</span>{/if}</span>
                     <span class="dp-sub">{qtyLabel(it)} · {it.kcal} kcal · {it.protein} g protein</span>
                   </span>
                   <span class="material-symbols-rounded dp-chev" aria-hidden="true">more_horiz</span>
