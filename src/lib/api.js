@@ -629,6 +629,8 @@ const API = {
       imgUrl: p.image_front_display_url || p.image_front_url || p.image_url || p.image_front_small_url || '',
       dateTime:  new Date().toISOString(),
       categories: [],
+      // Fork: OFF's own categories ("en:candies"), kept so the diary can pick an emoji.
+      offCategories: Array.isArray(p.categories_tags) ? p.categories_tags.slice(-6) : undefined,
       nutrition_basis: basis,
       alt_units:       altUnits,
       completeness,
@@ -761,6 +763,7 @@ const USDA = {
       imgUrl: '',
       dateTime:  new Date().toISOString(),
       categories: [],
+      offCategories: item.foodCategory ? [String(item.foodCategory)] : undefined, // fork: USDA branded category
       nutrition,
       // USDA's `dataType` distinguishes the source database. Feeds both the
       // in-page result sort (curated tiers first) and the small badge that

@@ -1,3 +1,4 @@
+import { setFoodOverrides } from '../lib/food-emoji.js';
 import { writable, get, derived } from 'svelte/store';
 import { DB } from '../lib/db.js';
 
@@ -26,7 +27,7 @@ export const USER_PREFS = new Set([
   'fastingScheduleEnabled','fastingScheduleTime','fastingScheduleDays','fastingScheduleGoal',
   'fastingScheduleLastFired',
   'visibleNutriments','nutrimentsOrder','customNutriments',
-  'bodyStatsOrder','hiddenBodyStats','foodCategories','customUnits',
+  'bodyStatsOrder','hiddenBodyStats','foodCategories','customUnits','foodOverrides',
   'diaryShowNutritionBar','diaryTotalsMode','macroLegendMode',
   'diaryShowBrands','diaryShowTimestamps','diaryShowThumbnails',
   'diaryShowAllNutrients','diaryShowNutritionUnits','diaryShowMacroSummary',
@@ -543,6 +544,10 @@ export const customNutriments  = createSettingStore('customNutriments', []);
 export const bodyStatsOrder    = createSettingStore('bodyStatsOrder',   []);
 export const hiddenBodyStats   = createSettingStore('hiddenBodyStats',  []);
 export const foodCategories    = createSettingStore('foodCategories',   []);
+// Fork: renames and emoji choices the user made on logged foods, remembered
+// by the food's original name + brand so later logs of it match.
+export const foodOverrides     = createSettingStore('foodOverrides',     {});
+foodOverrides.subscribe((v) => setFoodOverrides(v));
 // Custom units the user has added on top of the built-in catalog. Each
 // entry is { abbr, full }. They show in the UnitPicker's "Custom" group
 // at the top of the popover. They are NOT mass-convertible — picking a

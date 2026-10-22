@@ -1,7 +1,9 @@
 <script>
   import FoodIcon from '../components/ui/FoodIcon.svelte'; // fork: emoji for common foods
   import CommonFoodResults from '../components/foods/CommonFoodResults.svelte';
+  import RecentFoods from '../components/foods/RecentFoods.svelte'; // fork: recent + frequent before typing
   import { searchCommonFoods } from '../lib/common-foods.js';
+  import { emojiAtLogTime } from '../lib/food-emoji.js';
   import { onMount, onDestroy, tick } from 'svelte';
   import { push, location } from 'svelte-spa-router';
   import { _ } from 'svelte-i18n';
@@ -1103,6 +1105,7 @@
     }
     const item = {
       ...savedFood,
+      emoji: savedFood.emoji || food.emoji || emojiAtLogTime(food) || undefined, // fork: from brand / OFF category
       portion: savedFood.portion || 100,
       unit: savedFood.unit || 'g',
       quantity: 1,
@@ -1297,6 +1300,7 @@
     }
     const item = {
       ...savedFood,
+      emoji: savedFood.emoji || food.emoji || emojiAtLogTime(food) || undefined, // fork: from brand / OFF category
       portion: savedFood.portion || 100,
       unit: savedFood.unit || 'g',
       quantity: qty,
@@ -1387,6 +1391,29 @@
     multiAdding = false;
     history.back();
   }
+
+  // Fork: one-tap portion chips on the food sheet (1 medium / 1 cup / 100 g),
+  // built from the food's own units, so nobody has to type an amount.
+  $: _portionChips = (() => {
+    const f = promptFood;
+    if (!f) return [];
+    const chips = [];
+    const add = (amount, unit, sub = '') => {
+      if (!unit || chips.some(c => c.amount === amount && c.unit === unit)) return;
+      chips.push({ amount, unit, sub });
+    };
+    for (const au of (f.alt_units || []).slice(0, 4)) add(1, au.abbr, `${au.grams} g`);
+    // Only offer mass/volume chips when the scaler can really convert from the
+    // food's own unit (a mass or volume unit, or one of its alt_units);
+    // otherwise "100 g" of a food measured in "servings" would scale wrongly.
+    const convertible = !!_unitSystem(f.unit) || (f.alt_units || []).some(a => a.abbr === f.unit);
+    if (convertible) {
+      const liquid = f.nutrition_basis === 'ml' || f.unit === 'ml';
+      if (liquid || Number(f.density_g_ml) > 0) add(1, 'cup', '');
+      add(100, liquid ? 'ml' : 'g', '');
+    }
+    return chips.slice(0, 6);
+  })();
 
   async function confirmQtyPrompt() {
     if (!promptFood || _addingToDiary) return;
@@ -1668,16 +1695,42 @@
     }
   }
 
+  // Fork: re-log a previous day's meal. Starts at yesterday (or, when
+  // nothing was logged then, the most recent day that has meals, up to a week
+  // back); the arrows step to other days.
+  let prevDayOffset = 1;
+  let _prevSeeked = false;
+  let _prevDayStr = '';
+  $: _prevDayLabel = prevDayOffset === 1 ? "Yesterday's Meals"
+    : (_prevDayStr ? `Meals from ${new Date(_prevDayStr + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}` : 'Earlier Meals');
+  async function _mealsOn(offset) {
+    const d = new Date();
+    d.setDate(d.getDate() - offset);
+    const str = localDateStr(d);
+    const entry = await NtApi.getDiaryDate(str);
+    return { str, items: (entry && entry.items) || [] };
+  }
+  async function stepPrevDay(delta) {
+    const next = prevDayOffset + delta;
+    if (next < 1 || next > 60) return;
+    prevDayOffset = next;
+    await loadYesterdayMeals();
+  }
   async function loadYesterdayMeals() {
     if (!pickMode || !$foodsShowYesterdayMeals) { yesterdayMeals = []; return; }
-    const yDate = new Date();
-    yDate.setDate(yDate.getDate() - 1);
-    const yStr = localDateStr(yDate);
-    const entry = await NtApi.getDiaryDate(yStr);
-    if (!entry || !entry.items || !entry.items.length) { yesterdayMeals = []; return; }
+    let day = await _mealsOn(prevDayOffset);
+    if (!day.items.length && !_prevSeeked && prevDayOffset === 1) {
+      for (let o = 2; o <= 7; o++) {
+        const d = await _mealsOn(o);
+        if (d.items.length) { day = d; prevDayOffset = o; break; }
+      }
+    }
+    _prevSeeked = true;
+    _prevDayStr = day.str;
+    if (!day.items.length) { yesterdayMeals = []; return; }
     const names = $mealNames || ['Breakfast','Lunch','Dinner','Snacks'];
     const groups = {};
-    for (const item of entry.items) {
+    for (const item of day.items) {
       const m = item.meal != null ? Number(item.meal) : 0;
       if (!groups[m]) groups[m] = [];
       groups[m].push(item);
@@ -2128,16 +2181,24 @@
 
     <div class="foods-main">
 
-  <!-- Yesterday's meals (pick mode only) -->
-  {#if pickMode && yesterdayMeals.length > 0 && !search && activeTab === 1}
+  <!-- Previous day's meals (pick mode only; fork: any recent day, on Foods and Meals) -->
+  {#if pickMode && yesterdayMeals.length > 0 && !search && (activeTab === 0 || activeTab === 1)}
     <button class="meal-section-header" type="button"
       on:click={() => foodsYesterdayCollapsed.set(!$foodsYesterdayCollapsed)}
       aria-expanded={!$foodsYesterdayCollapsed}>
-      <span class="meal-section-label">Yesterday's Meals</span>
+      <span class="meal-section-label">{_prevDayLabel}</span>
       <span class="material-symbols-rounded meal-section-chevron"
         class:meal-section-chevron-collapsed={$foodsYesterdayCollapsed}>expand_more</span>
     </button>
     {#if !$foodsYesterdayCollapsed}
+    <div class="prev-day-nav" data-testid="prev-day-nav">
+      <button class="btn-icon" on:click={() => stepPrevDay(1)} aria-label="Earlier day" title="Earlier day">
+        <span class="material-symbols-rounded">chevron_left</span>
+      </button>
+      <button class="btn-icon" on:click={() => stepPrevDay(-1)} disabled={prevDayOffset <= 1} aria-label="Later day" title="Later day">
+        <span class="material-symbols-rounded">chevron_right</span>
+      </button>
+    </div>
     <div class="card" style="margin-bottom:12px">
       {#each yesterdayMeals as group, gi}
         {@const _grpEnergy = Nutrition.displayEnergy(group.totalKcal, $energyUnit)}
@@ -2166,7 +2227,7 @@
     {/if}
     <!-- Sibling header for the saved meals list — only render when both sections coexist
          (yesterday is showing AND there are saved meals to display) so it acts as a divider. -->
-    {#if filteredList.length > 0}
+    {#if filteredList.length > 0 && activeTab === 1}
       <button class="meal-section-header" type="button"
         on:click={() => foodsSavedCollapsed.set(!$foodsSavedCollapsed)}
         aria-expanded={!$foodsSavedCollapsed}>
@@ -2187,6 +2248,9 @@
   <div class="page-content">
     {#if searchSource === 'all'}
       <!-- ── All: merged results from every enabled source ─────────────────── -->
+      {#if activeTab === 0 && !search.trim() && !manageMode}
+        <RecentFoods foods={localFoods} on:pick={e => pickFood(e.detail)} />
+      {/if}
       <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} />
       {#if !search.trim()}
         <div class="empty-state">
@@ -2233,7 +2297,7 @@
                   <img class="food-thumb" src={item.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                 {:else}
                   <div class="food-thumb-placeholder">
-                    <FoodIcon name={item.name} icon={item.icon} size={24}
+                    <FoodIcon name={item.name} icon={item.icon} brand={item.brand} emoji={item.emoji} offCategories={item.offCategories} size={24}
                       fallback={isMealie || isCookTrace ? 'menu_book' : source === 'usda' ? 'science' : source === 'off' ? 'public' : _tabIcon} />
                   </div>
                 {/if}
@@ -2345,6 +2409,9 @@
     {:else if searchSource === 'local' || searchSource === 'shared' || (activeTab !== 0 && searchSource !== 'cooktrace')}
       <!-- ── Local list ─────────────────────────────────────────────────────── -->
       {#if searchSource === 'local'}
+        {#if activeTab === 0 && !search.trim() && !manageMode && !activeCategoryFilter}
+          <RecentFoods foods={localFoods} on:pick={e => pickFood(e.detail)} />
+        {/if}
         <CommonFoodResults entries={_commonResults} on:pick={e => pickFood(e.detail, 'common')} />
       {/if}
       {#if _initialLoading && filteredList.length === 0 && !loadError}
@@ -2413,7 +2480,7 @@
                   <img class="food-thumb" src={food.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                 {:else}
                   <div class="food-thumb-placeholder">
-                    {#if activeTab === 0}<FoodIcon name={food.name} icon={food.icon} size={24} fallback={_tabIcon} />{:else}<span class="material-symbols-rounded">{_tabIcon}</span>{/if}
+                    {#if activeTab === 0}<FoodIcon name={food.name} icon={food.icon} brand={food.brand} emoji={food.emoji} offCategories={food.offCategories} size={24} fallback={_tabIcon} />{:else}<span class="material-symbols-rounded">{_tabIcon}</span>{/if}
                   </div>
                 {/if}
                 <div class="food-info">
@@ -2512,7 +2579,7 @@
                     <img class="food-thumb" src={food.imgUrl} alt="" loading="lazy" referrerpolicy="no-referrer" on:error={e => e.target.style.display='none'} />
                   {:else}
                     <div class="food-thumb-placeholder">
-                      <FoodIcon name={food.name} icon={food.icon} size={24} fallback={searchSource === 'usda' ? 'science' : 'public'} />
+                      <FoodIcon name={food.name} icon={food.icon} brand={food.brand} emoji={food.emoji} offCategories={food.offCategories} size={24} fallback={searchSource === 'usda' ? 'science' : 'public'} />
                     </div>
                   {/if}
                   <div class="food-info">
@@ -2776,17 +2843,17 @@
         <span class="qty-notes-text">{promptFood.notes}</span>
       </div>
     {/if}
-    <!-- Quick-pick chips for per-food alt_units (slice/cookie/bottle).
-         Tapping fills portion=1 + unit=abbr so the user gets the right
-         gram math via scaleFactor's tier-1 lookup. Issues #69 + #70.
-         Gated on the showUnitMetadata opt-in (or warn-about-conversions). -->
-    {#if promptFood?.alt_units && promptFood.alt_units.length > 0 && ($showUnitMetadata || $warnUnitMismatch)}
-      <div class="qty-quickpicks">
-        {#each promptFood.alt_units as au}
+    <!-- Fork: portion chips. Tapping one fills amount + unit, so the usual
+         amounts (1 medium, 1 cup, 100 g) need no typing. Built from the
+         food's own alt_units, so the gram math is the same tier-1 lookup
+         the manual picker uses. Always shown (was behind showUnitMetadata). -->
+    {#if _portionChips.length > 0}
+      <div class="qty-quickpicks" data-testid="portion-chips">
+        {#each _portionChips as c}
           <button type="button" class="qty-quickpick"
-            class:active={promptUnit === au.abbr && parseDecimal(promptPortion) === 1}
-            on:click={() => { promptPortion = 1; promptUnit = au.abbr; }}>
-            1 {au.abbr} <span class="qty-quickpick-g">({au.grams} g)</span>
+            class:active={promptUnit === c.unit && parseDecimal(promptPortion) === c.amount}
+            on:click={() => { promptPortion = c.amount; promptUnit = c.unit; }}>
+            {c.amount} {c.unit}{#if c.sub} <span class="qty-quickpick-g">({c.sub})</span>{/if}
           </button>
         {/each}
       </div>
@@ -2854,7 +2921,7 @@
 
 <!-- Yesterday's meal info sheet — list of items in that meal group -->
 <Sheet open={yesterdayInfoGroup != null}
-  title={yesterdayInfoGroup ? `Yesterday: ${yesterdayInfoGroup.mealName}` : ''}
+  title={yesterdayInfoGroup ? `${prevDayOffset === 1 ? 'Yesterday' : 'Earlier'}: ${yesterdayInfoGroup.mealName}` : ''}
   on:close={() => yesterdayInfoGroup = null}>
   {#if yesterdayInfoGroup}
     {@const _yTotEnergy = Nutrition.displayEnergy(yesterdayInfoGroup.totalKcal, $energyUnit)}
@@ -4024,4 +4091,6 @@
     }
     :global(html.wide-content) :global(.food-item) { min-width: 0; }
   }
+
+  .prev-day-nav { display: flex; justify-content: flex-end; gap: 2px; margin: -6px 4px 2px; }
 </style>

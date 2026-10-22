@@ -4,6 +4,7 @@ import { Nutrition } from '../lib/nutrition.js';
 import { localDateStr, DB } from '../lib/db.js';
 import { resolveAssetUrl, isNative } from '../lib/platform.js';
 import { itemSourceRef } from '../lib/item-source.js';
+import { getOverride } from '../lib/food-emoji.js';
 
 function todayStr() {
   return localDateStr();
@@ -97,6 +98,7 @@ const _KEEP_FIELDS = [
   'nutrition', 'notes',                             // history-protected snapshot
   'imgUrl',                                         // scrubbed by _stripCachedPaths, hydrated on read
   'source', 'source_meal_id',                       // provenance (MCP writes / imports)
+  'emoji', 'origName',                              // fork: emoji from category/user choice; name before a rename
 ];
 function _toReferenceShape(items) {
   if (!Array.isArray(items)) return items;
@@ -288,8 +290,12 @@ export async function addDiaryItem(foodItem, meal, date, opts = {}) {
   const food_server_id = ('server_id' in foodItem)
     ? foodItem.server_id
     : (typeof foodItem.id === 'number' ? foodItem.id : null);
+  // Fork: a rename the user chose for this food earlier applies again, and
+  // the original name is kept so the choice can still be found.
+  const _ov = getOverride(foodItem.origName || foodItem.name, foodItem.brand);
   const item = {
     ...foodItem,
+    ...(_ov?.name && !foodItem.origName ? { name: _ov.name, origName: foodItem.name } : {}),
     uuid: _newUuid(),
     meal: meal != null ? Number(meal) : 0,
     // Fork: copies can carry a chosen logged time (opts.addedAt).

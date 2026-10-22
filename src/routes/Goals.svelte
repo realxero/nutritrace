@@ -15,6 +15,7 @@
   import { loadEntry } from '../stores/diary.js';
   import { showSuccess } from '../stores/toast.js';
   import MacroRing from '../components/diary/MacroRing.svelte';
+  import WeeklyCheckIn from '../components/diary/WeeklyCheckIn.svelte'; // fork: weekly check-in
   import { foldText } from '../lib/search-text.js';
   import { fold } from '../lib/fold.js';
 
@@ -789,6 +790,10 @@
 
     <!-- ─── CENTER PANE ─────────────────────────────────────────────────── -->
     <div class="goals-main">
+
+    {#if activeTab === 'yours'}
+      <WeeklyCheckIn />
+    {/if}
 
     <!-- ── Adaptive TDEE readiness card (shown only when adaptive mode is on) ── -->
     {#if activeTab === 'yours' && $calorieGoalMode === 'adaptive' && _adaptiveLoaded}

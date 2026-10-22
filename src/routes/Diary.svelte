@@ -22,7 +22,8 @@
   import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
   import QuickCaloriesSheet from '../components/diary/QuickCaloriesSheet.svelte';
   import PhotoLogButton from '../components/diary/PhotoLogButton.svelte';
-  import { aiEffectivelyEnabled } from '../stores/settings.js';
+  import { aiEffectivelyEnabled, foodOverrides } from '../stores/settings.js';
+  import { resolveFoodEmoji, overrideKey, EMOJI_CHOICES } from '../lib/food-emoji.js'; // fork: rename + emoji choice
   import FastingWidget from '../components/diary/FastingWidget.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
   import Sheet        from '../components/ui/Sheet.svelte';
@@ -142,6 +143,12 @@
   // display; saved back to kcal at write time so internal storage stays
   // consistent the same way QuickCaloriesSheet does.
   let editName         = '';
+  // Fork: rename a logged food and change its emoji (both remembered).
+  let editFoodName     = '';
+  let editEmoji        = '';      // '' = automatic
+  let editEmojiTouched = false;
+  let showEmojiGrid    = false;
+  $: _editShownEmoji = editItem ? ($foodOverrides, editEmojiTouched ? editEmoji : resolveFoodEmoji({ ...editItem, name: editFoodName || editItem.name })) : '';
   let editKcalDisplay  = '';
   let editProtein      = '';
   let editCarbs        = '';
@@ -264,6 +271,10 @@
     editLoggedTime = _isoToHm(item.addedAt || item.dateTime);
     _editChildContext = null;
     editNutOverride = null;
+    editFoodName = item?.name || '';
+    editEmoji = '';
+    editEmojiTouched = false;
+    showEmojiGrid = false;
     if (item?.type === 'quick_calories') {
       const storedKcal = Math.round(item.nutrition?.calories || 0);
       // Display in user's current energy unit; saved back to kcal.
@@ -372,6 +383,25 @@
       quantity:  _qty,
       nutrition: newNutrition,
     };
+    // Fork: rename + emoji choice. The original name is kept so the choice
+    // is remembered for the next time this food is logged.
+    if (!_editChildContext) {
+      const newName = (editFoodName || '').trim().slice(0, 80);
+      const origName = editItem.origName || editItem.name;
+      const nameChanged = newName && newName !== editItem.name;
+      if (nameChanged) { changes.name = newName; changes.origName = origName; }
+      if (editEmojiTouched) changes.emoji = editEmoji || undefined;
+      if (nameChanged || editEmojiTouched) {
+        const key = overrideKey(origName, editItem.brand);
+        const map = { ...($foodOverrides || {}) };
+        const cur = { ...(map[key] || {}) };
+        const finalName = nameChanged ? newName : (cur.name || (editItem.origName ? editItem.name : undefined));
+        if (finalName && finalName !== origName) cur.name = finalName; else delete cur.name;
+        if (editEmojiTouched) { if (editEmoji) cur.emoji = editEmoji; else delete cur.emoji; }
+        if (cur.name || cur.emoji) map[key] = cur; else delete map[key];
+        foodOverrides.set(map);
+      }
+    }
     if (_editChildContext) {
       // Split-recipe children inherit the parent's dateTime; skip the time
       // edit here so a child change doesn't fork the timestamp.
@@ -2317,7 +2347,7 @@
                       on:error={() => { _brokenThumbs = new Set([..._brokenThumbs, item.imgUrl]); }} />
                   {:else if $diaryShowThumbnails}
                     <div class="item-thumb-placeholder" style="color:var(--accent)">
-                      <FoodIcon name={item.name} icon={item.icon} size={24} />
+                      <FoodIcon name={item.name} icon={item.icon} brand={item.brand} emoji={item.emoji} origName={item.origName} offCategories={item.offCategories} size={24} />
                     </div>
                   {/if}
                   <div class="item-info">
@@ -3011,6 +3041,29 @@
           <span class="material-symbols-rounded" style="font-size:18px">content_copy</span> Copy to another day or meal
         </button>
       {:else}
+      {#if !_editChildContext}
+        <!-- Fork: rename + emoji. Both are remembered for this food. -->
+        <div class="edit-name-row" data-testid="edit-name-row">
+          <button type="button" class="edit-emoji-btn" on:click={() => showEmojiGrid = !showEmojiGrid}
+            aria-label="Change emoji" aria-expanded={showEmojiGrid} data-testid="edit-emoji-btn">
+            {#if _editShownEmoji}<span>{_editShownEmoji}</span>{:else}<span class="material-symbols-rounded" style="font-size:22px">restaurant</span>{/if}
+          </button>
+          <input class="input" type="text" maxlength="80" bind:value={editFoodName}
+            placeholder="Name" aria-label="Food name" data-testid="edit-food-name" />
+        </div>
+        {#if showEmojiGrid}
+          <div class="emoji-grid" data-testid="emoji-grid">
+            {#each EMOJI_CHOICES as em}
+              <button type="button" class="emoji-cell" class:emoji-cell-on={_editShownEmoji === em}
+                on:click={() => { editEmoji = em; editEmojiTouched = true; showEmojiGrid = false; }}>{em}</button>
+            {/each}
+            <input class="input emoji-own" type="text" maxlength="8" placeholder="Other…" aria-label="Type any emoji"
+              on:change={(e) => { const v = e.currentTarget.value.trim(); if (v) { editEmoji = v; editEmojiTouched = true; showEmojiGrid = false; } }} />
+            <button type="button" class="btn btn-ghost emoji-reset"
+              on:click={() => { editEmoji = ''; editEmojiTouched = true; showEmojiGrid = false; }}>Automatic</button>
+          </div>
+        {/if}
+      {/if}
       <div style="display:flex;gap:12px;margin-bottom:16px">
         <div style="flex:1">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">{$_('diary_deep.serving_size')}</label>
@@ -5121,4 +5174,15 @@
       grid-column: 1 / -1;
     }
   }
+
+  /* Fork: rename + emoji row in the diary edit sheet */
+  .edit-name-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .edit-emoji-btn { width: 46px; height: 46px; flex-shrink: 0; border-radius: var(--radius-sm); border: 1px solid var(--border);
+                    background: var(--accent-dim); font-size: 24px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+  .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 4px; margin-bottom: 14px;
+                padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+  .emoji-cell { height: 40px; font-size: 22px; line-height: 1; border-radius: 8px; background: transparent; border: 0; }
+  .emoji-cell-on { background: var(--accent-dim); }
+  .emoji-own { grid-column: span 3; min-width: 0; }
+  .emoji-reset { grid-column: span 3; }
 </style>
